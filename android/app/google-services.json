@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "307653017355",
+    "firebase_url": "https://astrogurujii-production-default-rtdb.firebaseio.com",
+    "project_id": "astrogurujii-production",
+    "storage_bucket": "astrogurujii-production.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:307653017355:android:b79a66067ddb7190c8ec0e",
+        "android_client_info": {
+          "package_name": "com.astrologer.astro.astrogurujiii"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMOLSzOQbwUsaSg2576yb92UmNMxuf3Xc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:307653017355:android:2c9023abedc3d234c8ec0e",
+        "android_client_info": {
+          "package_name": "com.astrologer.astrogurujii"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMOLSzOQbwUsaSg2576yb92UmNMxuf3Xc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:307653017355:android:c140b2d374d83708c8ec0e",
+        "android_client_info": {
+          "package_name": "com.user.astrogurujii"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMOLSzOQbwUsaSg2576yb92UmNMxuf3Xc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -35,7 +35,7 @@ class SettingsIconGrid extends StatelessWidget {
       {
         "icon": "videos.svg",
         "label": "Training Videos",
-        "page": const Trainingvideos(),
+        "page": const TrainingVideosScreen(),
       },
       {
         "icon": "terms-and-conditions.svg",

@@ -86,7 +86,7 @@ class AstrogurujiiSupportScreen extends StatelessWidget {
             /// 🔮 BRAND FOOTER
             const Center(
               child: Text(
-                'DivinIQ – Your Divine Guide',
+                'Astrogurujii – Your Divine Guide',
                 style: TextStyle(
                   color: Colors.black38,
                   fontSize: 13,

@@ -48,6 +48,27 @@ class ApiService {
     }, isAuthRequired: false);
   }
 
+
+  Future<AstrologerWalletResponse> PoojaStartLive(String  pujaID) async {
+    final response = await _client.post(
+      "astrologer_api/astrologer_wallet",
+      {"puja_id":pujaID},
+
+      isAuthRequired: true,
+    );
+    print(response.body);
+    return AstrologerWalletResponse.fromJson(jsonDecode(response.body));
+  }
+  Future<PoojaBookingResponse> getPujaBooking() async {
+    final response = await _client.get(
+      "astrologer_api/puja_bookings",
+
+      isAuthRequired: true,
+    );
+    print(response.body);
+    return PoojaBookingResponse.fromJson(jsonDecode(response.body));
+  }
+
     Future<NotificationResponse> AstrologerNotificatinList() async {
  
  
@@ -121,15 +142,7 @@ class ApiService {
     // return AstrologerProfileResponse.fromJson(jsonDecode(response.body));
   }
 
-  Future<PoojaBookingResponse> getPujaBooking() async {
-    final response = await _client.get(
-      "astrologer_api/puja_bookings",
 
-      isAuthRequired: true,
-    );
-    print(response.body);
-    return PoojaBookingResponse.fromJson(jsonDecode(response.body));
-  }
 
   Future<TransactionListResponse> getAstrologerTransactions() async {
     final response = await _client.post(

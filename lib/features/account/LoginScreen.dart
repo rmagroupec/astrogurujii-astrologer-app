@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:astrologer_app/MainNavScreen.dart';
 import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/core/widgets/app_gradient_button.dart';
@@ -143,7 +144,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Navigator.pushAndRemoveUntil(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => HomeScreen(),
+                                    builder: (context) => MainNavScreen(),
                                   ),
                                   (route) => false,
                                 );

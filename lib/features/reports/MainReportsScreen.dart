@@ -15,24 +15,39 @@ class MainReportsScreen extends StatefulWidget {
 class _MainReportsScreenState extends State<MainReportsScreen>
     with SingleTickerProviderStateMixin {
 
- 
   bool isLoading = false;
 
   late TabController _tabController;
 
   final tabs = ["Chat", "Call", "Video Call", "Astromall"];
 
+  // Maps the page string to its tab index
+  int _getInitialIndex() {
+    switch (widget.page) {
+      case "chat":
+        return 0;
+      case "audio":
+        return 1;
+      case "video":
+        return 2;
+      case "Astromall":
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: tabs.length, vsync: this);
- 
+    _tabController = TabController(
+      length: tabs.length,
+      vsync: this,
+      initialIndex: _getInitialIndex(),
+    );
   }
 
- 
-
   /// Filter per tab
-
 
   @override
   Widget build(BuildContext context) {
@@ -53,16 +68,15 @@ class _MainReportsScreenState extends State<MainReportsScreen>
           tabs: tabs.map((e) => Tab(text: e)).toList(),
         ),
       ),
-       body: TabBarView(
-  controller: _tabController,
-  children: [
-    HistoryCard(page: "chat"),
-    HistoryCard(page: "audio"),
-    HistoryCard(page: "video"),
-    HistoryCard(page: "Astromall"),
-  ],
-),
-
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          HistoryCard(page: "chat"),
+          HistoryCard(page: "audio"),
+          HistoryCard(page: "video"),
+          HistoryCard(page: "Astromall"),
+        ],
+      ),
     );
   }
 }

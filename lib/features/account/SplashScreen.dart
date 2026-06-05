@@ -1,3 +1,4 @@
+import 'package:astrologer_app/MainNavScreen.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/features/HomeScreen.dart';
 import 'package:astrologer_app/features/account/LoginScreen.dart';
@@ -43,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> {
       // User is logged in -> Go to Home
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (context) => HomeScreen()),
+        MaterialPageRoute(builder: (context) => MainNavScreen()),
         (route) => false,
       );
     } else {

@@ -1,229 +1,266 @@
-import 'package:astrologer_app/core/utils/size_config.dart';
-import 'package:astrologer_app/features/Settings/UserNotesForPujaScreen.dart';
 import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
-import 'package:astrologer_app/service/apiService.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/svg.dart';
+import 'package:astrologer_app/core/config/theme_config.dart';
+import 'package:astrologer_app/service/apiService.dart';
 
-class SuggestedPujaScreen extends StatefulWidget {
-  const SuggestedPujaScreen({super.key});
+
+class PoojaBookingScreen extends StatefulWidget {
+  const PoojaBookingScreen({super.key});
 
   @override
-  State<SuggestedPujaScreen> createState() => _SuggestedPujaScreenState();
+  State<PoojaBookingScreen> createState() => _PoojaBookingScreenState();
 }
 
-class _SuggestedPujaScreenState extends State<SuggestedPujaScreen> {
+class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
   bool isLoading = true;
-  List<PoojaBooking>? data;
+  bool isError = false;
+  List<PoojaBooking> bookings = [];
 
   @override
   void initState() {
     super.initState();
-
-    _loadData();
+    fetchPoojaBookings();
   }
 
-  Future<void> _loadData() async {
+  /// ================================
+  /// API CALL
+  /// ================================
+  Future<void> fetchPoojaBookings() async {
+    setState(() {
+      isLoading = true;
+      isError = false;
+    });
+
     try {
-      final response = await ApiService().getPujaBooking(); // your API
-      setState(() {
-        data = response.data;
-        isLoading = false;
-      });
+      final res = await ApiService().getPujaBooking();
+      
+     setState(() {
+       
+        bookings = res.data;
+     });
     } catch (e) {
-      setState(() => isLoading = false);
+      isError = true;
+      bookings = [];
+    }
+
+    setState(() => isLoading = false);
+  }
+
+  /// ================================
+  /// START LIVE API
+  /// ================================
+  Future<void> startLivePooja(PoojaBooking booking) async {
+    try {
+      await ApiService().PoojaStartLive(
+       booking.pujaBookingId.toString()
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Pooja started successfully")),
+      );
+
+      fetchPoojaBookings(); // refresh
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to start pooja")),
+      );
     }
   }
+  
+
+  /// ================================
+  /// UI
+  /// ================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F6F6),
       appBar: AppBar(
-        title: Text("Suggested Pooja"),
-        backgroundColor: Color(0xFFFCD417).withOpacity(0.25),
+        title: const Text("Pooja Bookings"),
+        backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.black,
+        elevation: 1,
       ),
-      body: isLoading ? Center(child: CircularProgressIndicator(),) : Padding(
-        padding: EdgeInsets.symmetric(
-          vertical: FigmaSize.h(15),
-          horizontal: FigmaSize.w(20),
+      body: _body(),
+    );
+  }
+
+  Widget _body() {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (isError) {
+      return Center(
+        child: ElevatedButton(
+          onPressed: fetchPoojaBookings,
+          child: const Text("Retry"),
         ),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              ListView.builder(
-                itemCount: 7,
-                shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
-                itemBuilder: (context, index) {
-                  return Column(
-                    children: [
-                      _suggestedPoojaCard(),
-                      SizedBox(height: FigmaSize.h(16)),
-                      Divider(color: Colors.black.withOpacity(0.1), height: 1),
-                      SizedBox(height: FigmaSize.h(16)),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
+      );
+    }
+
+    if (bookings.isEmpty) {
+      return const Center(child: Text("No Pooja Bookings Found"));
+    }
+
+    return RefreshIndicator(
+      onRefresh: fetchPoojaBookings,
+      child: ListView.builder(
+        itemCount: bookings.length,
+        itemBuilder: (_, i) => _bookingCard(bookings[i]),
       ),
     );
   }
 
-  Widget _suggestedPoojaCard() {
-    return Column(
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            /// LEFT CONTENT
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _labelText("Category Name", "VIP E-Pooja"),
-                  _labelText("Product Name", "10 mahavidya ki pooja"),
-                  _labelText("Name", "Jiya (ID - 2992627379)"),
-                  _labelText("Perform by", "Narendra Singh"),
+  /// ================================
+  /// BOOKING CARD
+  /// ================================
+  Widget _bookingCard(PoojaBooking b) {
+    final bool canStartLive =
+        b.paymentStatus == "Success" && b.isLive == false;
 
-                  SizedBox(height: FigmaSize.h(4)),
-                  Text(
-                    "29-Sep-25, 01:54 AM",
-                    style: TextStyle(
-                      fontSize: FigmaSize.w(12),
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFD41000),
-                    ),
-                  ),
-
-                  SizedBox(height: FigmaSize.h(6)),
-                  Text(
-                    "₹ 9000",
-                    style: TextStyle(
-                      fontSize: FigmaSize.w(13),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-
-                  SizedBox(height: FigmaSize.h(6)),
-                  _labelText("Type", "Paid Remedy", valueColor: Colors.red),
-                  _labelText("Status", "Not Booked", valueColor: Colors.red),
-
-                  SizedBox(height: FigmaSize.h(6)),
-                  RichText(
-                    text: TextSpan(
-                      style: TextStyle(
-                        fontSize: FigmaSize.w(12),
-                        color: Colors.black,
-                      ),
-                      children: const [
-                        TextSpan(
-                          text: "Description : ",
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        TextSpan(
-                          text:
-                              "Vaivashik Sukh Samriddhi ke liye aur vivaah rahi badhao ko dur karne ke liye",
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(height: FigmaSize.h(12)),
-
-                  /// RED BUTTON
-                ],
-              ),
-            ),
-
-            SizedBox(width: FigmaSize.w(12)),
-
-            /// RIGHT IMAGE + ICONS
-            Column(
-              children: [
-                Container(
-                  height: FigmaSize.h(80),
-                  width: FigmaSize.w(80),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    image: DecorationImage(
-                      image: NetworkImage("https://i.imgur.com/4Y9qZQZ.png"),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-
-                SizedBox(height: FigmaSize.h(12)),
-              ],
-            ),
-          ],
-        ),
-        SizedBox(
-          width: double.infinity,
-          child: Row(
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 6),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          /// HEADER
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: FigmaSize.w(16),
-                  vertical: FigmaSize.h(8),
-                ),
-                decoration: BoxDecoration(
-                  color: Color(0xFFD41000),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  "Suggest Next Remedy",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: FigmaSize.w(12),
-                    fontWeight: FontWeight.w600,
-                  ),
+              Text(
+                b.pujaType,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
                 ),
               ),
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: (){
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => Usernotesforpujascreen()));
-                    },
-                    child: SvgPicture.asset("assets/images/edit1.svg")),
-                  SizedBox(width: FigmaSize.w(12)),
-                  SvgPicture.asset("assets/images/delete.svg"),
-                ],
+              _statusChip(b.paymentStatus),
+            ],
+          ),
+
+          const SizedBox(height: 6),
+
+          /// BOOKING ID
+          Text(
+            "Booking ID: ${b.pujaBookingId}",
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+
+          const SizedBox(height: 10),
+
+          /// DATE
+          Row(
+            children: [
+              const Icon(Icons.calendar_today, size: 14),
+              const SizedBox(width: 6),
+              Text(
+                b.pujaDate.isEmpty ? "Date not assigned" : b.pujaDate,
+                style: const TextStyle(fontSize: 13),
               ),
             ],
           ),
-        ),
-      ],
+
+          /// TIME
+          if (b.startTime.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.access_time, size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    "${b.startTime}${b.endTime.isNotEmpty ? " - ${b.endTime}" : ""}",
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 10),
+
+          /// AMOUNT
+          Text(
+            "Amount: ₹${b.pujaAmount}",
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          /// ACTION
+          if (canStartLive)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                ),
+                onPressed: () => startLivePooja(b),
+                child: const Text(
+                  "Start Live",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            )
+          else if (b.isLive)
+            _infoText("Live in progress")
+          else
+            _infoText("Waiting for payment"),
+        ],
+      ),
     );
   }
 
-  Widget _labelText(String title, String value, {Color? valueColor}) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: FigmaSize.h(4)),
-      child: RichText(
-        text: TextSpan(
-          style: TextStyle(fontSize: FigmaSize.w(12), color: Colors.black),
-          children: [
-            TextSpan(
-              text: "$title : ",
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            TextSpan(
-              text: value,
-              style: TextStyle(
-                color: valueColor ?? Colors.black,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+  Widget _statusChip(String status) {
+    Color color;
+    switch (status) {
+      case "Success":
+        color = Colors.green;
+        break;
+      case "Pending":
+        color = Colors.orange;
+        break;
+      default:
+        color = Colors.grey;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.15),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
 
+  Widget _infoText(String text) {
+    return Center(
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 13,
+          color: Colors.grey,
+        ),
+      ),
+    );
+  }
 }

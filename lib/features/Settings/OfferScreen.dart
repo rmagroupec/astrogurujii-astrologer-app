@@ -1,6 +1,9 @@
-import 'package:astrologer_app/core/widgets/CustomSwitchButton.dart';
-import 'package:flutter/material.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
+import 'package:astrologer_app/core/widgets/CustomSwitchButton.dart';
+import 'package:astrologer_app/model/OfferListModel.dart';
+import 'package:astrologer_app/service/apiService.dart';
+import 'package:astrologer_app/service/liveService.dart';
+import 'package:flutter/material.dart';
 
 class OffersScreen extends StatefulWidget {
   const OffersScreen({super.key});
@@ -13,12 +16,60 @@ class _OffersScreenState extends State<OffersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  // ── State ──────────────────────────────────────────────────────
+  bool              isLoading = true;
+  List<OfferItem>   offers    = [];
+  String            _filter   = 'All';
+
   @override
   void initState() {
-    _tabController = TabController(length: 2, vsync: this);
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _fetchOffers();
   }
 
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  // ── API ────────────────────────────────────────────────────────
+  Future<void> _fetchOffers() async {
+    setState(() => isLoading = true);
+    try {
+      final response = await Liveservice().GetOfferList();
+      setState(() {
+        offers    = response.results;
+        isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('❌ OfferList error: $e');
+      setState(() => isLoading = false);
+    }
+  }
+
+  // ── Filter chips logic ─────────────────────────────────────────
+  List<OfferItem> get _filteredOffers {
+    if (_filter == 'All') return offers;
+    return offers.where((o) {
+      // filter by title containing the chip text
+      return o.title.toLowerCase().contains(
+            _filter.toLowerCase().replaceAll(' off', '').trim(),
+          );
+    }).toList();
+  }
+
+  // ── Derive unique chip labels from offer titles ─────────────────
+  List<String> get _chips {
+    final Set<String> extras = {};
+    for (final o in offers) {
+      if (o.title.isNotEmpty) extras.add(o.title);
+    }
+    return ['All', ...extras];
+  }
+
+  // ─────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -27,26 +78,28 @@ class _OffersScreenState extends State<OffersScreen>
         backgroundColor: const Color(0xFFFCD417).withOpacity(0.25),
         foregroundColor: Colors.black,
         elevation: 0,
-        title: const Text("Offers", style: TextStyle(fontWeight: FontWeight.w600)),
+        title: const Text("Offers",
+            style: TextStyle(fontWeight: FontWeight.w600)),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 🔹 Info text
+
+          // ── Info text ────────────────────────────────────────
           Padding(
-            padding: EdgeInsets.all(FigmaSize.w(12),),
+            padding: EdgeInsets.all(FigmaSize.w(12)),
             child: Text(
               "Loyal - Customers who have spoken with you for more than 15 min "
-              "(including both call and chat )",
+              "(including both call and chat)",
               style: TextStyle(
                 fontSize: FigmaSize.w(11),
                 color: Colors.black,
-                fontWeight: FontWeight.w500
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
 
-          // 🔹 Tabs
+          // ── Tabs ─────────────────────────────────────────────
           Container(
             color: const Color(0xFFFCD417).withOpacity(0.25),
             child: TabBar(
@@ -54,10 +107,8 @@ class _OffersScreenState extends State<OffersScreen>
               dividerColor: Colors.transparent,
               indicatorSize: TabBarIndicatorSize.tab,
               indicator: const UnderlineTabIndicator(
-                borderSide: BorderSide(
-                  color: Color(0xFFFCD417),
-                  width: 2,
-                ),
+                borderSide:
+                    BorderSide(color: Color(0xFFFCD417), width: 2),
               ),
               labelColor: Colors.black,
               unselectedLabelColor: Colors.black54,
@@ -68,48 +119,110 @@ class _OffersScreenState extends State<OffersScreen>
             ),
           ),
 
-          // 🔹 Filter chips
-          Padding(
-            padding: EdgeInsets.all(FigmaSize.w(12)),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _chip("All", selected: true),
-                  _chip("50% Off"),
-                  _chip("20% Off"),
-                  _chip("75% Off"),
-                ],
+          // ── Filter chips ─────────────────────────────────────
+          if (!isLoading && offers.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.all(FigmaSize.w(12)),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _chips
+                      .map((c) => _Chip(
+                            label:    c,
+                            selected: _filter == c,
+                            onTap:    () => setState(() => _filter = c),
+                          ))
+                      .toList(),
+                ),
               ),
             ),
-          ),
 
-          // 🔹 Tab Views
+          // ── Tab views ────────────────────────────────────────
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _allOffersView(),
-                _historyView(),
-              ],
-            ),
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _AllOffersTab(offers: _filteredOffers),
+                      _HistoryTab(offers: offers),
+                    ],
+                  ),
           ),
         ],
       ),
     );
   }
+}
 
-  // ================= ALL OFFERS =================
+// ─────────────────────────────────────────────────────────────────
+// ALL OFFERS TAB
+// ─────────────────────────────────────────────────────────────────
+class _AllOffersTab extends StatelessWidget {
+  final List<OfferItem> offers;
+  const _AllOffersTab({required this.offers});
 
-  Widget _allOffersView() {
+  @override
+  Widget build(BuildContext context) {
+    if (offers.isEmpty) {
+      return const Center(
+        child: Text("No offers available",
+            style: TextStyle(color: Colors.grey)),
+      );
+    }
     return ListView.builder(
       padding: EdgeInsets.all(FigmaSize.w(12)),
-      itemCount: 2,
-      itemBuilder: (_, i) => _offerPriceCard(),
+      itemCount: offers.length,
+      itemBuilder: (_, i) => _OfferCard(offer: offers[i]),
     );
   }
+}
 
-  Widget _offerPriceCard() {
+// ─────────────────────────────────────────────────────────────────
+// HISTORY TAB  (same offers — shows created/active status)
+// ─────────────────────────────────────────────────────────────────
+class _HistoryTab extends StatelessWidget {
+  final List<OfferItem> offers;
+  const _HistoryTab({required this.offers});
+
+  @override
+  Widget build(BuildContext context) {
+    if (offers.isEmpty) {
+      return const Center(
+        child: Text("No history yet",
+            style: TextStyle(color: Colors.grey)),
+      );
+    }
+    return ListView.builder(
+      padding: EdgeInsets.all(FigmaSize.w(12)),
+      itemCount: offers.length,
+      itemBuilder: (_, i) => _HistoryCard(offer: offers[i]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// OFFER CARD
+// ─────────────────────────────────────────────────────────────────
+class _OfferCard extends StatefulWidget {
+  final OfferItem offer;
+  const _OfferCard({required this.offer});
+
+  @override
+  State<_OfferCard> createState() => _OfferCardState();
+}
+
+class _OfferCardState extends State<_OfferCard> {
+  bool _active = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _active = widget.offer.status == 'Active';
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       margin: EdgeInsets.only(bottom: FigmaSize.h(12)),
       padding: EdgeInsets.all(FigmaSize.w(12)),
@@ -120,12 +233,15 @@ class _OffersScreenState extends State<OffersScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+
+          // ── Header ──────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "50% off",
+                widget.offer.title.isNotEmpty
+                    ? widget.offer.title
+                    : "Offer",
                 style: TextStyle(
                   color: Colors.red,
                   fontSize: FigmaSize.w(14),
@@ -134,71 +250,146 @@ class _OffersScreenState extends State<OffersScreen>
               ),
               Row(
                 children: [
-                 CustomToggleSwitch(value: false, onChanged: (val){}),
-                 SizedBox(width: FigmaSize.w(8),),
+                  CustomToggleSwitch(
+                    value: _active,
+                    onChanged: (val) => setState(() => _active = val),
+                  ),
+                  SizedBox(width: FigmaSize.w(8)),
                   Text(
-                    "In active",
-                    style: TextStyle(fontSize: FigmaSize.w(11)),
-                  )
+                    _active ? "Active" : "Inactive",
+                    style: TextStyle(
+                      fontSize: FigmaSize.w(11),
+                      color: _active ? Colors.green : Colors.grey,
+                    ),
+                  ),
                 ],
-              )
+              ),
             ],
           ),
 
-          const SizedBox(height: 8),
+          SizedBox(height: FigmaSize.h(10)),
 
-          _priceBlock(
-            title: "New Users",
-            color: Color(0xFFBDBDBD).withOpacity(0.08),
+          // ── Chat price block ─────────────────────────────────
+          _PriceBlock(
+            title:       "Chat",
+            price:       widget.offer.chatPrice,
+            icon:        Icons.chat_bubble_outline,
           ),
-          const SizedBox(height: 8),
-          _priceBlock(
-            title: "Loyal Users",
-            color: Color(0xFFBDBDBD).withOpacity(0.08),
+
+          SizedBox(height: FigmaSize.h(8)),
+
+          // ── Audio price block ────────────────────────────────
+          _PriceBlock(
+            title:       "Voice Call",
+            price:       widget.offer.audioPrice,
+            icon:        Icons.call_outlined,
+          ),
+
+          SizedBox(height: FigmaSize.h(8)),
+
+          // ── Video price block ────────────────────────────────
+          _PriceBlock(
+            title:       "Video Call",
+            price:       widget.offer.videoPrice,
+            icon:        Icons.videocam_outlined,
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _priceBlock({required String title, required Color color}) {
+// ─────────────────────────────────────────────────────────────────
+// PRICE BLOCK
+// ─────────────────────────────────────────────────────────────────
+class _PriceBlock extends StatelessWidget {
+  final String title;
+  final String price;
+  final IconData icon;
+
+  const _PriceBlock({
+    required this.title,
+    required this.price,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final double priceVal = double.tryParse(price) ?? 0;
+
     return Container(
       padding: EdgeInsets.all(FigmaSize.w(10)),
       decoration: BoxDecoration(
-        color: color,
+        color: const Color(0xFFBDBDBD).withOpacity(0.08),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Title + price summary
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title,
-                  style: TextStyle(
+              Row(
+                children: [
+                  Icon(icon, size: FigmaSize.w(13), color: Colors.black54),
+                  SizedBox(width: FigmaSize.w(5)),
+                  Text(
+                    title,
+                    style: TextStyle(
                       fontSize: FigmaSize.w(11),
-                      fontWeight: FontWeight.w600)),
-              Text("₹ 2.5 → ₹ 2.5",
-                  style: TextStyle(
-                      fontSize: FigmaSize.w(11),
-                      color: Colors.green)),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                "₹ $price / min",
+                style: TextStyle(
+                  fontSize: FigmaSize.w(11),
+                  color: Colors.green,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 6),
+
+          SizedBox(height: FigmaSize.h(6)),
+
+          // 3 price boxes
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _priceBox("You Share", "₹ 2.5"),
-              _priceBox("At Share", "₹ 2.5"),
-              _priceBox("Customer pays", "₹ 5.0"),
+              _PriceBox(
+                label: "You Share",
+                value: "₹ ${(priceVal * 0.5).toStringAsFixed(1)}",
+              ),
+              _PriceBox(
+                label: "At Share",
+                value: "₹ ${(priceVal * 0.5).toStringAsFixed(1)}",
+              ),
+              _PriceBox(
+                label: "Customer pays",
+                value: "₹ $price",
+              ),
             ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _priceBox(String label, String value) {
+// ─────────────────────────────────────────────────────────────────
+// PRICE BOX
+// ─────────────────────────────────────────────────────────────────
+class _PriceBox extends StatelessWidget {
+  final String label;
+  final String value;
+  const _PriceBox({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       width: FigmaSize.w(90),
       padding: EdgeInsets.all(FigmaSize.w(6)),
@@ -208,30 +399,38 @@ class _OffersScreenState extends State<OffersScreen>
       ),
       child: Column(
         children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: FigmaSize.w(10), color: Colors.black54)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: FigmaSize.w(10),
+              color: Colors.black54,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(value,
-              style: TextStyle(
-                  fontSize: FigmaSize.w(12),
-                  fontWeight: FontWeight.w600)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: FigmaSize.w(12),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  // ================= HISTORY =================
+// ─────────────────────────────────────────────────────────────────
+// HISTORY CARD
+// ─────────────────────────────────────────────────────────────────
+class _HistoryCard extends StatelessWidget {
+  final OfferItem offer;
+  const _HistoryCard({required this.offer});
 
-  Widget _historyView() {
-    return ListView.builder(
-      padding: EdgeInsets.all(FigmaSize.w(12)),
-      itemCount: 4,
-      itemBuilder: (_, i) => _historyCard(completed: i != 0),
-    );
-  }
+  @override
+  Widget build(BuildContext context) {
+    final completed = offer.status == 'Active';
 
-  Widget _historyCard({required bool completed}) {
     return Container(
       margin: EdgeInsets.only(bottom: FigmaSize.h(12)),
       padding: EdgeInsets.all(FigmaSize.w(12)),
@@ -242,50 +441,85 @@ class _OffersScreenState extends State<OffersScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+
+          // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "50% off",
+                offer.title.isNotEmpty ? offer.title : "Offer",
                 style: TextStyle(
-                    color: Colors.red,
-                    fontSize: FigmaSize.w(14),
-                    fontWeight: FontWeight.w600),
+                  color: Colors.red,
+                  fontSize: FigmaSize.w(14),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: FigmaSize.w(10),
-                    vertical: FigmaSize.h(4)),
+                  horizontal: FigmaSize.w(10),
+                  vertical: FigmaSize.h(4),
+                ),
                 decoration: BoxDecoration(
                   color: completed
-                      ? Colors.green.shade100
-                      : Colors.blue.shade100,
+                      ? Colors.green.shade50
+                      : Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  completed ? "Completed" : "In Progress",
+                  offer.status,
                   style: TextStyle(
                     fontSize: FigmaSize.w(11),
-                    color: completed ? Colors.green : Colors.blue,
+                    color: completed ? Colors.green : Colors.orange,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+
+          SizedBox(height: FigmaSize.h(10)),
+
+          // Time boxes
           Row(
             children: [
-              _timeBox("Start Time", "02 Oct 25, 12:34 AM"),
-              const SizedBox(width: 8),
-              _timeBox("End Time", "Currently active"),
+              _TimeBox(title: "Created", value: offer.createdDate),
+              SizedBox(width: FigmaSize.w(8)),
+              _TimeBox(
+                title: "Updated",
+                value: offer.updatedAt.isNotEmpty
+                    ? offer.updatedAt
+                    : "—",
+              ),
+            ],
+          ),
+
+          SizedBox(height: FigmaSize.h(8)),
+
+          // Price summary row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _MiniPriceTag(label: "Chat",  value: "₹ ${offer.chatPrice}"),
+              _MiniPriceTag(label: "Voice", value: "₹ ${offer.audioPrice}"),
+              _MiniPriceTag(label: "Video", value: "₹ ${offer.videoPrice}"),
             ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _timeBox(String title, String value) {
+// ─────────────────────────────────────────────────────────────────
+// TIME BOX
+// ─────────────────────────────────────────────────────────────────
+class _TimeBox extends StatelessWidget {
+  final String title;
+  final String value;
+  const _TimeBox({required this.title, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
     return Expanded(
       child: Container(
         padding: EdgeInsets.all(FigmaSize.w(10)),
@@ -302,31 +536,80 @@ class _OffersScreenState extends State<OffersScreen>
             const SizedBox(height: 4),
             Text(value,
                 style: TextStyle(
-                    fontSize: FigmaSize.w(12),
+                    fontSize: FigmaSize.w(11),
                     fontWeight: FontWeight.w600)),
           ],
         ),
       ),
     );
   }
+}
 
-  // ================= CHIP =================
+// ─────────────────────────────────────────────────────────────────
+// MINI PRICE TAG  (used in history)
+// ─────────────────────────────────────────────────────────────────
+class _MiniPriceTag extends StatelessWidget {
+  final String label;
+  final String value;
+  const _MiniPriceTag({required this.label, required this.value});
 
-  Widget _chip(String text, {bool selected = false}) {
-    return Container(
-      margin: EdgeInsets.only(right: FigmaSize.w(8)),
-      padding: EdgeInsets.symmetric(
-        horizontal: FigmaSize.w(14),
-        vertical: FigmaSize.h(6),
-      ),
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFFCD417)),
-        borderRadius: BorderRadius.circular(20),
-        color: selected ? const Color(0xFFFCD417).withOpacity(0.15) : Colors.white,
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: FigmaSize.w(11)),
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: FigmaSize.w(10), color: Colors.black45)),
+        const SizedBox(height: 2),
+        Text(value,
+            style: TextStyle(
+                fontSize: FigmaSize.w(12),
+                fontWeight: FontWeight.w600,
+                color: Colors.green)),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FILTER CHIP
+// ─────────────────────────────────────────────────────────────────
+class _Chip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: EdgeInsets.only(right: FigmaSize.w(8)),
+        padding: EdgeInsets.symmetric(
+          horizontal: FigmaSize.w(14),
+          vertical: FigmaSize.h(6),
+        ),
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFFCD417)),
+          borderRadius: BorderRadius.circular(20),
+          color: selected
+              ? const Color(0xFFFCD417).withOpacity(0.20)
+              : Colors.white,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: FigmaSize.w(11),
+            fontWeight:
+                selected ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
       ),
     );
   }

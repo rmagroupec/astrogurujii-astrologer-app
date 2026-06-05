@@ -3,8 +3,12 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  file_selector_linux
   flutter_localization
   flutter_secure_storage_linux
+  flutter_sound
+  open_file_linux
+  record_linux
   url_launcher_linux
 )
 

@@ -6,6 +6,7 @@ import 'package:astrologer_app/features/Settings/OfferHistoryScreen.dart';
 import 'package:astrologer_app/features/Settings/OfferScreen.dart';
 import 'package:astrologer_app/features/Settings/SuggestedPujaScreen.dart';
 import 'package:astrologer_app/features/account/AstrologerSideDrawer.dart';
+import 'package:astrologer_app/features/account/SupportChatScreen.dart';
 import 'package:astrologer_app/features/account/WalletScreen.dart';
 import 'package:astrologer_app/features/live/LiveEventListScreen.dart';
 import 'package:astrologer_app/features/live/WaitlistScreen.dart';
@@ -27,12 +28,12 @@ class HomeIconGrid extends StatelessWidget {
     final List<Map<String, dynamic>> menuItems = [
       {"icon": "phone.svg", "label": "Call","page": MainReportsScreen(page: "audio",)},
       {"icon": "chat.svg", "label": "Chat","page": MainReportsScreen(page: "chat",)},
-      {"icon": "videocall.svg", "label": "Video Call","page": IncomingVideoCallScreen( channelId: 'dfg', userName: 'Rohit', profile: 'New', token: 'fgdf',)},
-      {"icon": "online-shopping.svg", "label": "AstroMall"},
+      {"icon": "videocall.svg", "label": "Video Call","page": MainReportsScreen(page: "Video Call",)},
+      {"icon": "online-shopping.svg", "label": "AstroMall","page":MainReportsScreen(page: "Astromall",)},
       {"icon": "live.svg", "label": "Go Live", "page":LiveEventListScreen()},
       {"icon": "phone.svg", "label": "Waitlist","page": Waitlistscreen()},
-      {"icon": "chat_assistant.svg", "label": "Assistant"},
-      {"icon": "puja.svg", "label": "Pooja", "page":SuggestedPujaScreen()},
+      {"icon": "chat_assistant.svg", "label": "Assistant","page": SupportChatScreen()},
+      {"icon": "puja.svg", "label": "Pooja", "page":PoojaBookingScreen()},
       {"icon": "offers.svg", "label": "Offers", "page":OffersScreen()},
       {"icon": "review.svg", "label": "Reviews", "page":MyReviewsScreen()},
       {"icon": "wallet2.svg", "label": "Wallet","page": WalletScreen()},

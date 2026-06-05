@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 
 AstrologerLiveListResponse astrologerLiveListResponseFromJson(String str) =>
@@ -12,11 +11,7 @@ class AstrologerLiveListResponse {
   String? message;
   List<LiveEventData>? data;
 
-  AstrologerLiveListResponse({
-    this.status,
-    this.message,
-    this.data,
-  });
+  AstrologerLiveListResponse({this.status, this.message, this.data});
 
   factory AstrologerLiveListResponse.fromJson(Map<String, dynamic> json) =>
       AstrologerLiveListResponse(
@@ -77,7 +72,7 @@ class LiveEventData {
   factory LiveEventData.fromJson(Map<String, dynamic> json) => LiveEventData(
         id: json["_id"],
         users: json["users"] ?? [],
-        isLive: json["is_live"],
+        isLive: json["is_live"]?.toString(),
         startTime: json["start_time"],
         endTime: json["end_time"],
         channelId: json["channel_id"],
@@ -86,9 +81,11 @@ class LiveEventData {
         createdDate: json["Created_date"],
         updatedAt: json["updated_at"],
         title: json["title"],
-        astrologer: json["astrologer_id"] == null
-            ? null
-            : AstrologerInfo.fromJson(json["astrologer_id"]),
+        // ✅ guard: populate returns an object, but if it fails it's a plain String ID
+        astrologer: (json["astrologer_id"] is Map<String, dynamic>)
+            ? AstrologerInfo.fromJson(
+                json["astrologer_id"] as Map<String, dynamic>)
+            : null,
         liveDate: json["live_date"],
         status: json["status"],
         recurringDay: json["recurringDay"],
@@ -114,6 +111,7 @@ class LiveEventData {
         "__v": v,
       };
 }
+
 class AstrologerInfo {
   String? id;
   String? profileImg;
@@ -121,13 +119,7 @@ class AstrologerInfo {
   String? number;
   String? email;
 
-  AstrologerInfo({
-    this.id,
-    this.profileImg,
-    this.name,
-    this.number,
-    this.email,
-  });
+  AstrologerInfo({this.id, this.profileImg, this.name, this.number, this.email});
 
   factory AstrologerInfo.fromJson(Map<String, dynamic> json) => AstrologerInfo(
         id: json["_id"],

@@ -1,10 +1,13 @@
-// lib/features/service/VideoCallScreen.dart  (ASTROLOGER APP)
+// lib/features/service/VideoCallScreen.dart
 //
-// Fixes from doc 1 (current code):
-// 1. Added userName + userAvatar fields (NavigationManager must pass them)
-// 2. initAgora() wires onEnded: _showEndFlow callback
-// 3. _showEndFlow() shows rating bottom sheet after call ends
-// 4. All existing UI (remote video, local PiP, top info, bottom controls) identical
+// Changes:
+// 1. ✅ FIXED: back press → minimize() instead of ending call
+// 2. ✅ minimize() arrow in top-left (keyboard_arrow_down icon)
+// 3. ✅ WillPopScope minimizes, never ends
+// 4. ✅ resumed flag — skips re-initAgora() if engine already running
+// 5. ✅ initAgora passes callerName/callerImage for overlay
+// 6. ✅ dispose() never calls endLocalCall() — provider manages lifetime
+// 7. ✅ onEnded callback re-wired on every screen open
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart';
@@ -15,8 +18,11 @@ import 'package:provider/provider.dart';
 class VideoCallScreen extends StatefulWidget {
   final String token;
   final String channelId;
-  final String userName;     // ✅ added
-  final String userAvatar;   // ✅ added
+  final String userName;
+  final String userAvatar;
+
+  /// ✅ true when navigated back from mini overlay — skip re-initAgora()
+  final bool resumed;
 
   const VideoCallScreen({
     super.key,
@@ -24,6 +30,7 @@ class VideoCallScreen extends StatefulWidget {
     required this.token,
     this.userName   = 'User',
     this.userAvatar = '',
+    this.resumed    = false,
   });
 
   @override
@@ -42,52 +49,72 @@ class _VideoCallScreenState extends State<VideoCallScreen>
 
     Future.microtask(() async {
       if (!mounted) return;
-      final provider = Provider.of<VideoCallProvider>(context, listen: false);
+      final provider = context.read<VideoCallProvider>();
 
-      await provider.initAgora(
-        channelId: widget.channelId,
-        token    : widget.token,
-        // ✅ FIX: wire end callback so rating sheet shows
-        onEnded  : (reason) => _showEndFlow(reason: reason),
-      );
-
-      provider.startDeduction(
-        channelId: widget.channelId,
-        deductApi: (id) async => ApiService().deductAmount(id),
-      );
+      if (!widget.resumed) {
+        // Fresh call — full init
+        await provider.initAgora(
+          channelId: widget.channelId,
+          token    : widget.token,
+          name     : widget.userName,
+          image    : widget.userAvatar,
+          onEnded  : (reason) => _showEndFlow(reason: reason),
+        );
+        provider.startDeduction(
+          channelId: widget.channelId,
+          deductApi: (id) async => ApiService().deductAmount(id),
+        );
+      } else {
+        // Resumed from overlay — engine still running, just re-wire callback
+        provider.expand();
+        // Re-wire onEnded so this new screen instance handles rating sheet
+        await provider.initAgora(
+          channelId: widget.channelId,
+          token    : widget.token,
+          onEnded  : (reason) => _showEndFlow(reason: reason),
+        );
+      }
     });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // ✅ NEVER call endLocalCall here — provider manages engine lifetime
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final provider = Provider.of<VideoCallProvider>(context, listen: false);
+    final provider = context.read<VideoCallProvider>();
     if (state == AppLifecycleState.paused) {
       provider.muteLocalVideoForBackground(true);
     } else if (state == AppLifecycleState.resumed) {
-      provider.muteLocalVideoForBackground(false);
+      if (!provider.isMinimized) provider.muteLocalVideoForBackground(false);
     }
+  }
+
+  // ✅ Minimize — does NOT end call
+  void _minimize() {
+    if (_endShown) return;
+    context.read<VideoCallProvider>().minimize();
+    Navigator.of(context).pop();
   }
 
   Future<void> _showEndFlow({required String reason}) async {
     if (_endShown || !mounted) return;
     _endShown = true;
 
-    final provider = Provider.of<VideoCallProvider>(context, listen: false);
+    final provider = context.read<VideoCallProvider>();
     await provider.endLocalCall();
 
     if (!mounted) return;
     await showModalBottomSheet(
-      context         : context,
-      isDismissible   : false,
-      enableDrag      : false,
+      context           : context,
+      isDismissible     : false,
+      enableDrag        : false,
       isScrollControlled: true,
-      backgroundColor : Colors.transparent,
+      backgroundColor   : Colors.transparent,
       builder: (_) => _VideoRatingSheet(
         userName  : widget.userName,
         userAvatar: widget.userAvatar,
@@ -104,7 +131,7 @@ class _VideoCallScreenState extends State<VideoCallScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape  : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title  : const Text('End Call',
             style: TextStyle(fontWeight: FontWeight.bold)),
         content: const Text('Are you sure you want to end this video call?'),
@@ -136,9 +163,10 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   Widget build(BuildContext context) {
     final provider = context.watch<VideoCallProvider>();
 
+    // ✅ Back press → minimize, NOT end call
     return WillPopScope(
       onWillPop: () async {
-        _showEndFlow(reason: 'You ended the call.');
+        _minimize();
         return false;
       },
       child: Scaffold(
@@ -147,9 +175,8 @@ class _VideoCallScreenState extends State<VideoCallScreen>
           children: [
             // Remote video full-screen
             GestureDetector(
-              onTap: () => setState(() => _showUI = !_showUI),
-              child: SizedBox.expand(
-                  child: _remoteVideoWidget(provider)),
+              onTap : () => setState(() => _showUI = !_showUI),
+              child : SizedBox.expand(child: _remoteVideoWidget(provider)),
             ),
 
             // Local PiP top-right
@@ -161,13 +188,37 @@ class _VideoCallScreenState extends State<VideoCallScreen>
               child : _localPipWidget(provider),
             ),
 
-            // Top info
+            // ✅ Minimize button top-left (replaces raw back behaviour)
+            Positioned(
+              top : MediaQuery.of(context).padding.top + 12,
+              left: 12,
+              child: AnimatedOpacity(
+                opacity : _showUI ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child   : GestureDetector(
+                  onTap: _minimize,
+                  child: Container(
+                    width     : 40,
+                    height    : 40,
+                    decoration: BoxDecoration(
+                      color : Colors.black45,
+                      shape : BoxShape.circle,
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: const Icon(Icons.keyboard_arrow_down,
+                        color: Colors.white, size: 24),
+                  ),
+                ),
+              ),
+            ),
+
+            // Top info — name + timer (pushed right of minimize button)
             AnimatedOpacity(
               opacity : _showUI ? 1 : 0,
               duration: const Duration(milliseconds: 200),
               child   : Positioned(
                 top : MediaQuery.of(context).padding.top + 12,
-                left: 16,
+                left: 64,  // right of minimize button
                 child: _topInfo(provider),
               ),
             ),
@@ -204,20 +255,16 @@ class _VideoCallScreenState extends State<VideoCallScreen>
                   ? NetworkImage(widget.userAvatar)
                   : null,
               child: widget.userAvatar.isEmpty
-                  ? const Icon(Icons.person,
-                      size: 48, color: Colors.white54)
+                  ? const Icon(Icons.person, size: 48, color: Colors.white54)
                   : null,
             ),
             const SizedBox(height: 16),
             Text(widget.userName,
-                style: const TextStyle(
-                    color     : Colors.white,
-                    fontSize  : 20,
+                style: const TextStyle(color: Colors.white, fontSize: 20,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             const Text('Waiting for user to join…',
-                style: TextStyle(
-                    color: Colors.white54, fontSize: 14)),
+                style: TextStyle(color: Colors.white54, fontSize: 14)),
           ],
         ),
       );
@@ -234,16 +281,12 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   Widget _localPipWidget(VideoCallProvider provider) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child       : Container(
+      child: Container(
         color: Colors.black,
         child: provider.engine == null
-            ? const Center(
-                child: SizedBox(
-                  width: 24, height: 24,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white54),
-                ),
-              )
+            ? const Center(child: SizedBox(width: 24, height: 24,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white54)))
             : provider.isVideoOn
                 ? AgoraVideoView(
                     controller: VideoViewController(
@@ -254,10 +297,8 @@ class _VideoCallScreenState extends State<VideoCallScreen>
                   )
                 : Container(
                     color: Colors.grey.shade900,
-                    child: const Center(
-                      child: Icon(Icons.videocam_off,
-                          color: Colors.white54, size: 32),
-                    ),
+                    child: const Center(child: Icon(Icons.videocam_off,
+                        color: Colors.white54, size: 32)),
                   ),
       ),
     );
@@ -266,33 +307,24 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   Widget _topInfo(VideoCallProvider provider) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children          : [
+      children: [
         Text(widget.userName,
-            style: const TextStyle(
-                color     : Colors.white,
-                fontSize  : 18,
+            style: const TextStyle(color: Colors.white, fontSize: 18,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         Consumer<VideoCallProvider>(
-          builder: (_, p, __) => Row(
-            children: [
-              Container(
-                width : 8, height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: p.remoteUid != null
-                      ? Colors.greenAccent
-                      : Colors.orange,
-                ),
+          builder: (_, p, __) => Row(children: [
+            Container(
+              width : 8, height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: p.remoteUid != null ? Colors.greenAccent : Colors.orange,
               ),
-              const SizedBox(width: 6),
-              Text(
-                p.remoteUid != null ? p.duration : 'Connecting…',
-                style: const TextStyle(
-                    color: Colors.white70, fontSize: 13),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 6),
+            Text(p.remoteUid != null ? p.duration : 'Connecting…',
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          ]),
         ),
       ],
     );
@@ -311,11 +343,10 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children         : [
+        children: [
           _ctrlBtn(
             icon  : provider.speakerOn
-                ? Icons.volume_up_rounded
-                : Icons.volume_off_rounded,
+                ? Icons.volume_up_rounded : Icons.volume_off_rounded,
             label : 'Speaker',
             active: provider.speakerOn,
             onTap : provider.toggleSpeaker,
@@ -334,8 +365,7 @@ class _VideoCallScreenState extends State<VideoCallScreen>
           ),
           _ctrlBtn(
             icon  : provider.isVideoOn
-                ? Icons.videocam_rounded
-                : Icons.videocam_off_rounded,
+                ? Icons.videocam_rounded : Icons.videocam_off_rounded,
             label : 'Video',
             active: provider.isVideoOn,
             onTap : provider.toggleVideo,
@@ -344,25 +374,21 @@ class _VideoCallScreenState extends State<VideoCallScreen>
             onTap: _onEndButtonPressed,
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children    : [
+              children: [
                 Container(
                   width     : 60, height: 60,
                   decoration: BoxDecoration(
                     shape    : BoxShape.circle,
                     color    : Colors.red,
-                    boxShadow: [
-                      BoxShadow(
-                          color    : Colors.red.withOpacity(0.5),
-                          blurRadius: 12)
-                    ],
+                    boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.5),
+                        blurRadius: 12)],
                   ),
                   child: const Icon(Icons.call_end_rounded,
                       color: Colors.white, size: 28),
                 ),
                 const SizedBox(height: 6),
                 const Text('End',
-                    style: TextStyle(
-                        color: Colors.white70, fontSize: 12)),
+                    style: TextStyle(color: Colors.white70, fontSize: 12)),
               ],
             ),
           ),
@@ -386,17 +412,12 @@ class _VideoCallScreenState extends State<VideoCallScreen>
             width     : 50, height: 50,
             decoration: BoxDecoration(
               shape : BoxShape.circle,
-              color : active
-                  ? Colors.white24
-                  : Colors.white.withOpacity(0.08),
+              color : active ? Colors.white24 : Colors.white.withOpacity(0.08),
               border: Border.all(
-                  color: active
-                      ? Colors.white38
-                      : Colors.transparent),
+                  color: active ? Colors.white38 : Colors.transparent),
             ),
             child: Icon(icon,
-                color: active ? Colors.white : Colors.white38,
-                size : 22),
+                color: active ? Colors.white : Colors.white38, size: 22),
           ),
           const SizedBox(height: 6),
           Text(label,
@@ -409,11 +430,13 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   }
 }
 
-// ── Rating sheet (same as doc 1) ──────────────────────────────────────────────
+// =============================================================================
+// VIDEO RATING SHEET
+// =============================================================================
 class _VideoRatingSheet extends StatefulWidget {
-  final String     userName;
-  final String     userAvatar;
-  final String     duration;
+  final String userName;
+  final String userAvatar;
+  final String duration;
   final VoidCallback onDone;
 
   const _VideoRatingSheet({
@@ -428,10 +451,9 @@ class _VideoRatingSheet extends StatefulWidget {
 }
 
 class _VideoRatingSheetState extends State<_VideoRatingSheet> {
-  int    _stars      = 0;
-  bool   _submitting = false;
-  final  _reviewCtrl = TextEditingController();
-
+  int  _stars      = 0;
+  final _reviewCtrl = TextEditingController();
+  bool _submitting  = false;
   static const _labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
 
   @override
@@ -440,7 +462,7 @@ class _VideoRatingSheetState extends State<_VideoRatingSheet> {
   Future<void> _submit() async {
     if (_stars == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a rating')));
+        const SnackBar(content: Text('Please select a star rating.')));
       return;
     }
     setState(() => _submitting = true);
@@ -453,191 +475,131 @@ class _VideoRatingSheetState extends State<_VideoRatingSheet> {
   Widget build(BuildContext context) {
     final bi = MediaQuery.of(context).viewInsets.bottom;
     return Container(
-      padding   : EdgeInsets.only(
-          left: 20, right: 20, top: 24, bottom: 24 + bi),
+      padding: EdgeInsets.only(left: 20, right: 20, top: 24, bottom: 24 + bi),
       decoration: const BoxDecoration(
         color       : Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children    : [
-          Container(
-            width: 40, height: 4,
-            decoration: BoxDecoration(
-                color       : Colors.grey.shade300,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 40, height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade300,
                 borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 20),
+        const SizedBox(height: 20),
 
-          // Session card
-          Container(
-            padding   : const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color       : const Color(0xFF1A1A2E),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(children: [
-              CircleAvatar(
-                radius         : 26,
-                backgroundColor: Colors.grey.shade700,
-                backgroundImage: widget.userAvatar.isNotEmpty
-                    ? NetworkImage(widget.userAvatar)
-                    : null,
-                child: widget.userAvatar.isEmpty
-                    ? const Icon(Icons.person, color: Colors.white54)
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children          : [
-                    Text(widget.userName,
-                        style: const TextStyle(
-                            color     : Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize  : 15)),
-                    const SizedBox(height: 3),
-                    Row(children: [
-                      const Icon(Icons.videocam_rounded,
-                          size: 13, color: Colors.white54),
-                      const SizedBox(width: 4),
-                      Text('Video Call · ${widget.duration}',
-                          style: const TextStyle(
-                              color  : Colors.white54,
-                              fontSize: 12)),
-                    ]),
-                  ],
-                ),
-              ),
-              Container(
-                padding   : const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                    color       : Colors.red.shade900,
-                    borderRadius: BorderRadius.circular(12)),
-                child: const Text('Ended',
-                    style: TextStyle(
-                        color     : Colors.white,
-                        fontSize  : 11,
-                        fontWeight: FontWeight.w600)),
-              ),
-            ]),
+        // Call ended badge
+        Container(
+          padding   : const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color       : Colors.red.shade50,
+            borderRadius: BorderRadius.circular(20),
+            border      : Border.all(color: Colors.red.shade200),
           ),
-
-          const SizedBox(height: 24),
-          const Text('Rate Your Experience',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text('How was your video call with ${widget.userName}?',
-              style: TextStyle(
-                  fontSize: 13, color: Colors.grey.shade600)),
-          const SizedBox(height: 20),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children         : List.generate(5, (i) {
-              final s = i + 1;
-              return GestureDetector(
-                onTap: () => setState(() => _stars = s),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child  : Icon(
-                    _stars >= s
-                        ? Icons.star_rounded
-                        : Icons.star_outline_rounded,
-                    size : 44,
-                    color: _stars >= s
-                        ? const Color(0xFFEBC351)
-                        : Colors.grey.shade300,
-                  ),
-                ),
-              );
-            }),
-          ),
-
-          if (_stars > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child  : Text(_labels[_stars],
-                  style: const TextStyle(
-                      color     : Color(0xFFEBC351),
-                      fontWeight: FontWeight.w600,
-                      fontSize  : 14)),
-            ),
-
-          const SizedBox(height: 20),
-
-          TextField(
-            controller: _reviewCtrl,
-            maxLines  : 3,
-            maxLength : 300,
-            decoration: InputDecoration(
-              hintText   : 'Write your review (optional)…',
-              hintStyle  : TextStyle(
-                  color: Colors.grey.shade400, fontSize: 13),
-              filled     : true,
-              fillColor  : Colors.grey.shade50,
-              border     : OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide  :
-                      BorderSide(color: Colors.grey.shade200)),
-              enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide  :
-                      BorderSide(color: Colors.grey.shade200)),
-              focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide  : const BorderSide(
-                      color: Color(0xFFEBC351))),
-              contentPadding: const EdgeInsets.all(12),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Row(children: [
-            Expanded(
-              child: OutlinedButton(
-                style    : OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  side   : BorderSide(color: Colors.grey.shade300),
-                  shape  : RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: _submitting ? null : widget.onDone,
-                child    : const Text('Skip',
-                    style: TextStyle(color: Colors.grey)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex : 2,
-              child: ElevatedButton(
-                style    : ElevatedButton.styleFrom(
-                  padding        : const EdgeInsets.symmetric(vertical: 14),
-                  backgroundColor: const Color(0xFFEBC351),
-                  shape          : RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  elevation: 0,
-                ),
-                onPressed: _submitting ? null : _submit,
-                child    : _submitting
-                    ? const SizedBox(
-                        width: 20, height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.black))
-                    : const Text('Submit Rating',
-                        style: TextStyle(
-                            color     : Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize  : 15)),
-              ),
-            ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.videocam_off, size: 14, color: Colors.red.shade400),
+            const SizedBox(width: 6),
+            Text('Video Call Ended',
+                style: TextStyle(color: Colors.red.shade400,
+                    fontWeight: FontWeight.w600, fontSize: 12)),
           ]),
-        ],
-      ),
+        ),
+        const SizedBox(height: 20),
+
+        // Avatar + name + duration
+        CircleAvatar(
+          radius         : 40,
+          backgroundColor: Colors.grey.shade200,
+          backgroundImage: widget.userAvatar.isNotEmpty
+              ? NetworkImage(widget.userAvatar) : null,
+          child: widget.userAvatar.isEmpty
+              ? const Icon(Icons.person, size: 40, color: Colors.grey) : null,
+        ),
+        const SizedBox(height: 10),
+        Text(widget.userName,
+            style: const TextStyle(fontSize: 18,
+                fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A))),
+        const SizedBox(height: 4),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.videocam, size: 13, color: Colors.grey),
+          const SizedBox(width: 4),
+          Text('Video · ${widget.duration}',
+              style: const TextStyle(color: Colors.grey, fontSize: 13)),
+        ]),
+
+        const SizedBox(height: 20),
+        const Text('Rate Your Experience',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        Text('How was your video call with ${widget.userName}?',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+        const SizedBox(height: 16),
+
+        // Stars
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(5, (i) {
+            final s = i + 1;
+            return GestureDetector(
+              onTap: () => setState(() => _stars = s),
+              child: Padding(padding: const EdgeInsets.all(4),
+                child: Icon(
+                  _stars >= s ? Icons.star_rounded : Icons.star_outline_rounded,
+                  size: 44,
+                  color: _stars >= s ? const Color(0xFFEBC351) : Colors.grey.shade300,
+                )),
+            );
+          }),
+        ),
+        if (_stars > 0) Padding(padding: const EdgeInsets.only(top: 6),
+          child: Text(_labels[_stars],
+              style: const TextStyle(color: Color(0xFFEBC351),
+                  fontWeight: FontWeight.w600, fontSize: 14))),
+
+        const SizedBox(height: 16),
+        TextField(controller: _reviewCtrl, maxLines: 3, maxLength: 300,
+          decoration: InputDecoration(
+            hintText     : 'Write your review (optional)…',
+            hintStyle    : TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            filled       : true, fillColor: Colors.grey.shade50,
+            border       : OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFEBC351))),
+            contentPadding: const EdgeInsets.all(12),
+          )),
+        const SizedBox(height: 16),
+
+        Row(children: [
+          Expanded(child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              side   : BorderSide(color: Colors.grey.shade300),
+              shape  : RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: _submitting ? null : widget.onDone,
+            child: const Text('Skip', style: TextStyle(color: Colors.grey)),
+          )),
+          const SizedBox(width: 12),
+          Expanded(flex: 2, child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              padding        : const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: const Color(0xFFEBC351),
+              shape          : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            onPressed: _submitting ? null : _submit,
+            child: _submitting
+                ? const SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.black))
+                : const Text('Submit Rating',
+                    style: TextStyle(color: Colors.black,
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+          )),
+        ]),
+      ]),
     );
   }
 }

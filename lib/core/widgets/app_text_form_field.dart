@@ -53,7 +53,7 @@ class _AppTextFormFieldState extends State<AppTextFormField> {
     return TextFormField(
       controller: widget.controller,
       keyboardType: widget.keyboardType,
-      obscureText: widget.obscureText,
+      obscureText: _obscureText,
       validator: widget.validator,
       onChanged: widget.onChanged,
       maxLines: widget.maxLines,

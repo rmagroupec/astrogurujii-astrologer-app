@@ -1,65 +1,61 @@
+// lib/service/localNotificationService.dart  (ASTROLOGER APP — FINAL)
+//
+// Shows full-screen notification with Accept/Reject when app is bg/killed.
+// Payload stores ALL fields needed for navigation on Accept tap.
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class LocalNotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+
   static const String acceptAction = 'ACCEPT_CALL';
   static const String rejectAction = 'REJECT_CALL';
+
   static Future<void> initialize(
-    Function(NotificationResponse) onAction,
+    void Function(NotificationResponse) onAction,
   ) async {
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const initSettings = InitializationSettings(android: androidInit);
-
     await _plugin.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: onAction,
-      onDidReceiveBackgroundNotificationResponse: onAction, // 🔥 REQUIRED
+      const InitializationSettings(android: androidInit),
+      onDidReceiveNotificationResponse          : onAction,
+      onDidReceiveBackgroundNotificationResponse: onAction, // ← killed/bg
     );
   }
 
-  static Future<void> show({
-    required String title,
-    required String body,
-    int id = 0,
-  }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'incoming_chat',
-      'Incoming Chat',
-      importance: Importance.max,
-      priority: Priority.high,
-      fullScreenIntent: true,
-      ticker: 'ticker',
-    );
-
-    const notificationDetails = NotificationDetails(android: androidDetails);
-
-    await _plugin.show(id, title, body, notificationDetails);
-  }
-
+  // ── Show full-screen incoming call notification ───────────────────────────
+  // Called from firebaseMessagingBackgroundHandler in main.dart
   static Future<void> showIncomingCall({
-    required String title,
-    required String body,
+    required String              title,
+    required String              body,
     required Map<String, String> payload,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'incoming_call',
-      'Incoming Call',
-      channelDescription: 'Incoming chat/call requests',
-      importance: Importance.max,
-      priority: Priority.high,
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.call,
-      actions: [
+    // Build payload string — encode values so special chars survive
+    final payloadStr = payload.entries
+        .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+
+    final androidDetails = AndroidNotificationDetails(
+      'astro_incoming_call',
+      'Incoming Calls',
+      channelDescription: 'Incoming call & chat from users',
+      importance        : Importance.max,
+      priority          : Priority.high,
+      fullScreenIntent  : true,       // ← shows over lock screen
+      category          : AndroidNotificationCategory.call,
+      ongoing           : true,       // ← can't be swiped away
+      autoCancel        : false,
+      timeoutAfter      : 45000,      // auto-dismiss after 45 s
+      actions           : const [
         AndroidNotificationAction(
           acceptAction,
-          'Accept',
-          showsUserInterface: true,
+          'Accept ✅',
+          showsUserInterface: true,   // ← brings app to foreground
+          cancelNotification: true,
         ),
         AndroidNotificationAction(
           rejectAction,
-          'Reject',
+          'Reject ❌',
           showsUserInterface: false,
           cancelNotification: true,
         ),
@@ -67,11 +63,19 @@ class LocalNotificationService {
     );
 
     await _plugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      (payload['channel_id'] ?? 'call').hashCode,
       title,
       body,
       NotificationDetails(android: androidDetails),
-      payload: payload.entries.map((e) => '${e.key}=${e.value}').join('&'),
+      payload: payloadStr,
     );
+  }
+
+  static Future<void> cancelCall(String channelId) async {
+    await _plugin.cancel(channelId.hashCode);
+  }
+
+  static Future<void> cancelAll() async {
+    await _plugin.cancelAll();
   }
 }

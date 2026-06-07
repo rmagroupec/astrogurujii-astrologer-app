@@ -1,4 +1,5 @@
 import 'package:astrologer_app/features/service/provider/ChatProvider.dart';
+import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart';
 import 'package:astrologer_app/features/service/provider/audio_call_provider.dart';
 import 'package:astrologer_app/features/service/service/navigationManager.dart';
 import 'package:astrologer_app/service/ChatCallStatusService.dart';
@@ -166,10 +167,12 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => AudioCallProvider()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
+         ChangeNotifierProvider(create: (_) => VideoCallProvider()),
       ],
-      child: _PermissionWrapper(child: const MyApp()),
+      builder: (context, child) => _PermissionWrapper(child: const MyApp())
     ),
   );
 }

@@ -1,13 +1,23 @@
+import 'dart:convert';
+
 import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/core/widgets/app_gradient_button.dart';
 import 'package:astrologer_app/core/widgets/app_text_form_field.dart';
 import 'package:astrologer_app/core/widgets/footer_widget_login.dart';
-
+import 'package:astrologer_app/service/apiClient.dart';
 import 'package:flutter/material.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
-  const ChangePasswordScreen({super.key});
+  /// Email and OTP are passed in from ForgotPasswordScreen
+  final String email;
+  final String otp;
+
+  const ChangePasswordScreen({
+    super.key,
+    required this.email,
+    required this.otp,
+  });
 
   @override
   State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
@@ -16,47 +26,90 @@ class ChangePasswordScreen extends StatefulWidget {
 class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final otpController = TextEditingController();
-  final newPasswordController = TextEditingController();
-  final confirmPasswordController = TextEditingController();
+  final _otpController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
-  bool isOtpVerified = false;
-  bool isLoading = false;
+  bool _isOtpVerified = false;
+  bool _isLoading = false;
 
   @override
   void dispose() {
-   
-    otpController.dispose();
-    newPasswordController.dispose();
-    confirmPasswordController.dispose();
+    _otpController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  void _verifyOtp() async {
+  // ── Step 1: Verify OTP locally ────────────────────────────────────────────
+  void _verifyOtp() {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => isLoading = true);
+    final enteredOtp = _otpController.text.trim();
 
-    // 🔥 API CALL FOR OTP VERIFICATION
-    await Future.delayed(const Duration(seconds: 2));
+    if (enteredOtp != widget.otp) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Incorrect OTP. Please check and try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-    setState(() {
-      isLoading = false;
-      isOtpVerified = true;
-    });
+    setState(() => _isOtpVerified = true);
   }
 
-  void _changePassword() async {
+  // ── Step 2: Change password via API ──────────────────────────────────────
+  Future<void> _changePassword() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => isLoading = true);
+    setState(() => _isLoading = true);
 
-    // 🔥 API CALL FOR CHANGE PASSWORD
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final response = await ApiClient().post(
+        'astrologer_api/verify_otp_change_password',
+        {
+          'email': widget.email,
+          'otp': widget.otp,
+          'new_password': _newPasswordController.text.trim(),
+        },
+        isAuthRequired: false,
+      );
 
-    setState(() => isLoading = false);
+      final data = jsonDecode(response.body);
 
-    // Navigate or show success
+      if (!mounted) return;
+
+      if (data['result'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Password changed successfully! Please login.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // Pop back to login (remove all routes above it)
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message'] ?? 'Something went wrong'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -65,7 +118,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       backgroundColor: AppTheme.primaryColor,
       body: Column(
         children: [
-          /// LOGO SECTION
+          // ── Logo ────────────────────────────────────────────────────────
           SizedBox(
             height: FigmaSize.h(304),
             child: Center(
@@ -78,14 +131,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   borderRadius: BorderRadius.circular(FigmaSize.w(20)),
                 ),
                 child: Image.asset(
-                  "assets/images/logo.png",
+                  'assets/images/logo.png',
                   fit: BoxFit.contain,
                 ),
               ),
             ),
           ),
 
-          /// FORM SECTION
+          // ── Form ────────────────────────────────────────────────────────
           Expanded(
             child: Container(
               padding: EdgeInsets.symmetric(
@@ -101,63 +154,112 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               child: Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    /// EMAIL
-                  
+                    // Title changes based on step
+                    Text(
+                      _isOtpVerified ? 'Set New Password' : 'Verify OTP',
+                      style: TextStyle(
+                        fontSize: FigmaSize.w(22),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    SizedBox(height: FigmaSize.h(8)),
+                    Text(
+                      _isOtpVerified
+                          ? 'Enter a strong new password for your account.'
+                          : 'Enter the OTP sent to ${widget.email}',
+                      style: TextStyle(
+                        fontSize: FigmaSize.w(13),
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    SizedBox(height: FigmaSize.h(28)),
 
-                    SizedBox(height: FigmaSize.h(16)),
-
-                    /// OTP FIELD (ONLY BEFORE VERIFIED)
-                    if (!isOtpVerified)
+                    // ── Step 1: OTP input ──────────────────────────────────
+                    if (!_isOtpVerified)
                       AppTextFormField(
-                        controller: otpController,
-                        hintText: "Enter OTP",
+                        controller: _otpController,
+                        hintText: 'Enter OTP',
                         keyboardType: TextInputType.number,
-                        validator: (value) =>
-                            value!.length < 4 ? "Invalid OTP" : null,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'OTP is required';
+                          }
+                          if (value.trim().length < 4) {
+                            return 'Enter a valid 4-digit OTP';
+                          }
+                          return null;
+                        },
                       ),
 
-                    /// PASSWORD FIELDS (AFTER OTP VERIFIED)
-                    if (isOtpVerified) ...[
+                    // ── Step 2: New password inputs ────────────────────────
+                    if (_isOtpVerified) ...[
                       AppTextFormField(
-                        controller: newPasswordController,
-                        hintText: "New Password",
+                        controller: _newPasswordController,
+                        hintText: 'New Password',
                         isPassword: true,
-                        validator: (value) =>
-                            value!.length < 6 ? "Min 6 characters" : null,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Password is required';
+                          }
+                          if (value.trim().length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          return null;
+                        },
                       ),
                       SizedBox(height: FigmaSize.h(16)),
                       AppTextFormField(
-                        controller: confirmPasswordController,
-                        hintText: "Confirm Password",
+                        controller: _confirmPasswordController,
+                        hintText: 'Confirm Password',
                         isPassword: true,
-                        validator: (value) =>
-                            value != newPasswordController.text
-                                ? "Passwords do not match"
-                                : null,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please confirm your password';
+                          }
+                          if (value.trim() != _newPasswordController.text.trim()) {
+                            return 'Passwords do not match';
+                          }
+                          return null;
+                        },
                       ),
                     ],
 
-                    SizedBox(height: FigmaSize.h(24)),
+                    SizedBox(height: FigmaSize.h(28)),
 
-                    /// ACTION BUTTON
                     AppGradientButton(
-                      title: isOtpVerified ? "Change Password" : "Verify OTP",
-                      isLoading: isLoading,
-                      onPressed:
-                          isOtpVerified ? _changePassword : _verifyOtp,
+                      title: _isOtpVerified ? 'Change Password' : 'Verify OTP',
+                      isLoading: _isLoading,
+                      onPressed: _isOtpVerified ? _changePassword : _verifyOtp,
                     ),
 
-                    SizedBox(height: FigmaSize.h(32)),
+                    SizedBox(height: FigmaSize.h(16)),
 
+                    // Go back option
+                    if (!_isOtpVerified)
+                      Center(
+                        child: GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Text(
+                            'Wrong email? Go back',
+                            style: TextStyle(
+                              color: AppTheme.primaryColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: FigmaSize.w(13),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    const Spacer(),
+                    const DarkStatsHeader(),
                   ],
                 ),
               ),
             ),
           ),
-
-          /// FOOTER STATS
-          const DarkStatsHeader(),
         ],
       ),
     );

@@ -1,10 +1,10 @@
 // lib/features/service/provider/audio_call_provider.dart
 //
-// Fixes from doc 7 (current code):
-// 1. _getToken() was using 'token' key — astrologer app uses 'auth_token'
-// 2. _updateCallStatus() was hitting /user_api/ — must be /astrologer_api/
-// 3. Added VoidCallback? onRemoteDisconnected to init() — screen wires rating dialog
-// Everything else identical to doc 7.
+// Changes from previous version:
+// 1. Fixed end() — now properly clears engine even when _engine is null guard was skipping
+// 2. Added isMinimized state + minimize()/expand() methods
+// 3. toggleHold() already existed — exposed getter properly
+// 4. Caller info stored in provider for overlay widget to access
 
 import 'dart:async';
 import 'dart:convert';
@@ -22,12 +22,17 @@ class AudioCallProvider extends ChangeNotifier {
   bool _speakerOn    = true;
   bool _onHold       = false;
   bool _remoteJoined = false;
+  bool _isMinimized  = false;   // ✅ NEW: for floating overlay
+  bool _isEnded      = false;   // ✅ NEW: track end state
 
   Timer?   _durationTimer;
   Duration _callDuration = Duration.zero;
   String   _channelId    = '';
 
-  // ✅ FIX 3: callback so AudioCallScreen can show rating when remote leaves
+  // ✅ Caller info stored so overlay can display it
+  String callerName  = '';
+  String callerImage = '';
+
   VoidCallback? _onRemoteDisconnected;
 
   bool   get joined       => _joined;
@@ -35,6 +40,10 @@ class AudioCallProvider extends ChangeNotifier {
   bool   get muted        => _muted;
   bool   get speakerOn    => _speakerOn;
   bool   get onHold       => _onHold;
+  bool   get isMinimized  => _isMinimized;
+  bool   get isEnded      => _isEnded;
+  bool   get isActive     => _joined && !_isEnded;
+  String get channelId    => _channelId;
 
   String get duration {
     final m = _callDuration.inMinutes.toString().padLeft(2, '0');
@@ -44,7 +53,6 @@ class AudioCallProvider extends ChangeNotifier {
 
   Future<String> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
-    // ✅ FIX 1: astrologer app stores JWT as 'auth_token', not 'token'
     return prefs.getString('auth_token') ?? '';
   }
 
@@ -53,7 +61,6 @@ class AudioCallProvider extends ChangeNotifier {
     try {
       final auth = await _getToken();
       final res  = await http.post(
-        // ✅ FIX 2: was /user_api/ — this is the ASTROLOGER app
         Uri.parse('https://admin.astrogurujii.com/astrologer_api/call_status_update'),
         headers: {
           'Content-Type' : 'application/json',
@@ -70,11 +77,16 @@ class AudioCallProvider extends ChangeNotifier {
   Future<void> init({
     required String   channelId,
     required String   token,
-    VoidCallback?     onRemoteDisconnected,  // ✅ FIX 3
+    required String   name,       // ✅ NEW: store caller info
+    required String   image,      // ✅ NEW: store caller info
+    VoidCallback?     onRemoteDisconnected,
   }) async {
     if (_engine != null) return;
     _channelId            = channelId;
     _onRemoteDisconnected = onRemoteDisconnected;
+    callerName            = name;
+    callerImage           = image;
+    _isEnded              = false;
 
     _engine = createAgoraRtcEngine();
 
@@ -146,7 +158,6 @@ class AudioCallProvider extends ChangeNotifier {
           _durationTimer = null;
           _callDuration  = Duration.zero;
           _safeNotify();
-          // ✅ FIX 3: notify screen — shows rating dialog
           _onRemoteDisconnected?.call();
         },
 
@@ -166,9 +177,10 @@ class AudioCallProvider extends ChangeNotifier {
     await _engine!.joinChannel(
       token    : token,
       channelId: channelId,
-      uid      : 2,    // ✅ uid=2 for astrologer (user uses uid=1)
+      uid      : 2,
       options  : const ChannelMediaOptions(
         publishMicrophoneTrack        : true,
+        clientRoleType                : ClientRoleType.clientRoleBroadcaster,
         autoSubscribeAudio            : true,
         autoSubscribeVideo            : false,
         enableAudioRecordingOrPlayout : true,
@@ -206,7 +218,23 @@ class AudioCallProvider extends ChangeNotifier {
     _safeNotify();
   }
 
+  // ✅ Minimize — hides the full screen, shows floating overlay
+  void minimize() {
+    _isMinimized = true;
+    _safeNotify();
+  }
+
+  // ✅ Expand — bring back full screen
+  void expand() {
+    _isMinimized = false;
+    _safeNotify();
+  }
+
+  // ✅ FIXED end() — was guarded by _engine != null check at top
   Future<void> end() async {
+    if (_isEnded) return;                 // ✅ prevent double-end
+    _isEnded = true;
+    _isMinimized = false;
     _durationTimer?.cancel();
     _durationTimer = null;
     await _updateCallStatus('end_astro');

@@ -21,7 +21,10 @@ class NavigationManager {
   static final NavigationManager _instance = NavigationManager._internal();
   factory NavigationManager() => _instance;
   NavigationManager._internal();
+  AudioCallProvider? activeAudioProvider;
+  VideoCallProvider? activeVideoProvider;
 
+ ChatProvider? activeChatProvider;
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   bool    _isShowingIncomingChat  = false;
@@ -87,12 +90,12 @@ class NavigationManager {
     required String userAvatar,
   }) async {
     if (_isShowingIncomingVideo || _currentVideoChannelId == channelId) {
-      print('⚠️ Already showing incoming video call: $channelId');
+      debugPrint('⚠️ Already showing incoming video call: $channelId');
       return;
     }
-    _isShowingIncomingVideo  = true;
-    _currentVideoChannelId   = channelId;
-
+    _isShowingIncomingVideo = true;
+    _currentVideoChannelId  = channelId;
+ 
     try {
       final result = await navigatorKey.currentState?.push<String>(
         MaterialPageRoute(
@@ -105,11 +108,22 @@ class NavigationManager {
           ),
         ),
       );
-
+ 
       if (result == 'accept') {
+        // ✅ FIX 1: still call accept_astro here for the user app to know
+        //    astrologer accepted the screen (not yet joined Agora).
+        //    Provider will call it AGAIN on onJoinChannelSuccess (Agora joined).
+        //    Backend should handle duplicate — or remove this one entirely
+        //    if your backend deduplicates on channel_id+status.
         await callStatusService.updateCallStatus(
             channelId: channelId, status: 'accept_astro');
-        openVideoCallScreen(channelId: channelId, token: token, userName: userName, userAvatar: userAvatar);
+ 
+        openVideoCallScreen(
+          channelId : channelId,
+          token     : token,
+          userName  : userName,
+          userAvatar: userAvatar,
+        );
       }
     } finally {
       _isShowingIncomingVideo = false;
@@ -164,42 +178,57 @@ class NavigationManager {
   }
 
   // ── Open screens ───────────────────────────────────────────────────────────
-  void openVideoCallScreen({
+ void openVideoCallScreen({
     required String channelId,
     required String token,
-    String userName   = '',    // ✅ added
-    String userAvatar = '',    // ✅ added
+    String userName   = '',
+    String userAvatar = '',
   }) {
-    navigatorKey.currentState?.push(
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) {
+      debugPrint('❌ Navigator not ready');
+      return;
+    }
+ 
+    // ✅ FIX 2: create + store provider, use .value so it survives screen pops
+    final provider = VideoCallProvider();
+    activeVideoProvider = provider;
+ 
+    navigator.push(
       MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider(
-          create: (_) => VideoCallProvider(),
-          child : VideoCallScreen(
-            channelId  : channelId,
-            token      : token,
-            userName   : userName,
-            userAvatar : userAvatar,
+        builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
+          value: provider,
+          child: VideoCallScreen(
+            channelId : channelId,
+            token     : token,
+            userName  : userName,
+            userAvatar: userAvatar,
           ),
         ),
       ),
     );
   }
+ 
 
-  void openAudioCallScreen({
+void openAudioCallScreen({
     required String channelId,
     required String token,
-    String userName   = '',    // ✅ FIX: added
-    String userAvatar = '',    // ✅ FIX: added
+    String userName   = '',
+    String userAvatar = '',
   }) {
+    // ✅ Create provider and store reference for overlay to access
+    final provider = AudioCallProvider();
+    activeAudioProvider = provider;
+ 
     navigatorKey.currentState?.push(
       MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<AudioCallProvider>(
-          create: (_) => AudioCallProvider(),
-          child : AudioCallScreen(
+        builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
+          value: provider,
+          child: AudioCallScreen(
             channelId  : channelId,
             token      : token,
-            callerName : userName,    // ✅ FIX: was empty default
-            callerImage: userAvatar,  // ✅ FIX: was empty default
+            callerName : userName,
+            callerImage: userAvatar,
           ),
         ),
       ),
@@ -214,22 +243,28 @@ class NavigationManager {
     required String userAvatar,
   }) {
     final navigator = navigatorKey.currentState;
-    if (navigator == null) {
-      debugPrint('❌ Navigator not ready');
-      return;
-    }
+    if (navigator == null) { debugPrint('❌ Navigator not ready'); return; }
+ 
+    // ✅ Create provider and store reference — overlay polls this
+    final provider = ChatProvider();
+    activeChatProvider = provider;
+ 
     navigator.push(
       MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          channelId : channelId,
-          astroId   : astroId,
-          userId    : userId,
-          userName  : userName,
-          userAvatar: userAvatar,
+        builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
+          value: provider,
+          child: ChatScreen(
+            channelId : channelId,
+            astroId   : astroId,
+            userId    : userId,
+            userName  : userName,
+            userAvatar: userAvatar,
+          ),
         ),
       ),
     );
   }
+  
 
   void handleChatEndFromNotification(String reason) {
     final context = navigatorKey.currentContext;

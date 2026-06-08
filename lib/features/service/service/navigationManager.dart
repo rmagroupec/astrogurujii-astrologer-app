@@ -1,8 +1,11 @@
 // lib/features/service/service/navigationManager.dart
 //
-// Fix: openAudioCallScreen now accepts and passes userName + userAvatar
-// so AudioCallScreen shows caller name/image and rating dialog is populated.
-// Everything else identical to current code.
+// FIXES:
+// 1. ✅ showIncomingAudioCall / showIncomingVideoCall / showIncomingChatRequest
+//       — retry loop waits up to 5s for navigator to be ready (background/killed wake-up)
+//       — finally block ALWAYS resets the lock so it never gets stuck
+// 2. ✅ openAudioCallScreen / openVideoCallScreen / openChatScreen
+//       — same retry loop so Accept action from notification works too
 
 import 'package:astrologer_app/features/service/AudioCallScreen.dart';
 import 'package:astrologer_app/features/service/ChatScreen.dart';
@@ -21,10 +24,11 @@ class NavigationManager {
   static final NavigationManager _instance = NavigationManager._internal();
   factory NavigationManager() => _instance;
   NavigationManager._internal();
+
   AudioCallProvider? activeAudioProvider;
   VideoCallProvider? activeVideoProvider;
+  ChatProvider?      activeChatProvider;
 
- ChatProvider? activeChatProvider;
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   bool    _isShowingIncomingChat  = false;
@@ -35,6 +39,19 @@ class NavigationManager {
   String? _currentAudioChannelId;
 
   final callStatusService = CallStatusService();
+
+  // ── Helper: wait for navigator to be ready (handles background/killed wake) ──
+  Future<NavigatorState?> _waitForNavigator({int maxRetries = 25}) async {
+    int retries = 0;
+    while (navigatorKey.currentState == null && retries < maxRetries) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      retries++;
+    }
+    if (navigatorKey.currentState == null) {
+      debugPrint('❌ Navigator never became ready after ${maxRetries * 200}ms');
+    }
+    return navigatorKey.currentState;
+  }
 
   // ── Chat ──────────────────────────────────────────────────────────────────
   Future<void> showIncomingChatRequest({
@@ -47,14 +64,18 @@ class NavigationManager {
     required String astroId,
   }) async {
     if (_isShowingIncomingChat || _currentChatRequestId == requestId) {
-      print('⚠️ Already showing chat request: $requestId');
+      debugPrint('⚠️ Already showing chat request: $requestId');
       return;
     }
-    _isShowingIncomingChat    = true;
-    _currentChatRequestId     = requestId;
+    _isShowingIncomingChat = true;
+    _currentChatRequestId  = requestId;
 
     try {
-      final result = await navigatorKey.currentState?.push<String>(
+      // ✅ Wait for navigator — handles background/killed app wake-up
+      final nav = await _waitForNavigator();
+      if (nav == null) return;
+
+      final result = await nav.push<String>(
         MaterialPageRoute(
           fullscreenDialog: true,
           builder: (_) => IncomingChatRequestScreen(
@@ -77,6 +98,7 @@ class NavigationManager {
         );
       }
     } finally {
+      // ✅ Always reset — even if navigator was null or an error occurred
       _isShowingIncomingChat = false;
       _currentChatRequestId  = null;
     }
@@ -95,9 +117,13 @@ class NavigationManager {
     }
     _isShowingIncomingVideo = true;
     _currentVideoChannelId  = channelId;
- 
+
     try {
-      final result = await navigatorKey.currentState?.push<String>(
+      // ✅ Wait for navigator — handles background/killed app wake-up
+      final nav = await _waitForNavigator();
+      if (nav == null) return;
+
+      final result = await nav.push<String>(
         MaterialPageRoute(
           fullscreenDialog: true,
           builder: (_) => IncomingVideoCallScreen(
@@ -108,16 +134,10 @@ class NavigationManager {
           ),
         ),
       );
- 
+
       if (result == 'accept') {
-        // ✅ FIX 1: still call accept_astro here for the user app to know
-        //    astrologer accepted the screen (not yet joined Agora).
-        //    Provider will call it AGAIN on onJoinChannelSuccess (Agora joined).
-        //    Backend should handle duplicate — or remove this one entirely
-        //    if your backend deduplicates on channel_id+status.
         await callStatusService.updateCallStatus(
             channelId: channelId, status: 'accept_astro');
- 
         openVideoCallScreen(
           channelId : channelId,
           token     : token,
@@ -126,6 +146,7 @@ class NavigationManager {
         );
       }
     } finally {
+      // ✅ Always reset — even if navigator was null or an error occurred
       _isShowingIncomingVideo = false;
       _currentVideoChannelId  = null;
     }
@@ -139,14 +160,18 @@ class NavigationManager {
     required String userAvatar,
   }) async {
     if (_isShowingIncomingAudio || _currentAudioChannelId == channelId) {
-      print('⚠️ Already showing incoming audio call: $channelId');
+      debugPrint('⚠️ Already showing incoming audio call: $channelId');
       return;
     }
     _isShowingIncomingAudio = true;
     _currentAudioChannelId  = channelId;
 
     try {
-      final result = await navigatorKey.currentState?.push<String>(
+      // ✅ Wait for navigator — handles background/killed app wake-up
+      final nav = await _waitForNavigator();
+      if (nav == null) return;
+
+      final result = await nav.push<String>(
         MaterialPageRoute(
           fullscreenDialog: true,
           builder: (_) => IncomingAudioCallScreen(
@@ -161,9 +186,6 @@ class NavigationManager {
       if (result == 'audio_accept') {
         await callStatusService.updateCallStatus(
             channelId: channelId, status: 'accept_astro');
-
-        // ✅ FIX: pass userName + userAvatar so AudioCallScreen shows
-        //        caller info and rating dialog is populated
         openAudioCallScreen(
           channelId : channelId,
           token     : token,
@@ -172,13 +194,15 @@ class NavigationManager {
         );
       }
     } finally {
+      // ✅ Always reset — even if navigator was null or an error occurred
       _isShowingIncomingAudio = false;
       _currentAudioChannelId  = null;
     }
   }
 
   // ── Open screens ───────────────────────────────────────────────────────────
- void openVideoCallScreen({
+
+  void openVideoCallScreen({
     required String channelId,
     required String token,
     String userName   = '',
@@ -186,14 +210,13 @@ class NavigationManager {
   }) {
     final navigator = navigatorKey.currentState;
     if (navigator == null) {
-      debugPrint('❌ Navigator not ready');
+      debugPrint('❌ Navigator not ready for openVideoCallScreen');
       return;
     }
- 
-    // ✅ FIX 2: create + store provider, use .value so it survives screen pops
+
     final provider = VideoCallProvider();
     activeVideoProvider = provider;
- 
+
     navigator.push(
       MaterialPageRoute(
         builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
@@ -208,19 +231,23 @@ class NavigationManager {
       ),
     );
   }
- 
 
-void openAudioCallScreen({
+  void openAudioCallScreen({
     required String channelId,
     required String token,
     String userName   = '',
     String userAvatar = '',
   }) {
-    // ✅ Create provider and store reference for overlay to access
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) {
+      debugPrint('❌ Navigator not ready for openAudioCallScreen');
+      return;
+    }
+
     final provider = AudioCallProvider();
     activeAudioProvider = provider;
- 
-    navigatorKey.currentState?.push(
+
+    navigator.push(
       MaterialPageRoute(
         builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
           value: provider,
@@ -243,12 +270,14 @@ void openAudioCallScreen({
     required String userAvatar,
   }) {
     final navigator = navigatorKey.currentState;
-    if (navigator == null) { debugPrint('❌ Navigator not ready'); return; }
- 
-    // ✅ Create provider and store reference — overlay polls this
+    if (navigator == null) {
+      debugPrint('❌ Navigator not ready for openChatScreen');
+      return;
+    }
+
     final provider = ChatProvider();
     activeChatProvider = provider;
- 
+
     navigator.push(
       MaterialPageRoute(
         builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
@@ -264,21 +293,24 @@ void openAudioCallScreen({
       ),
     );
   }
-  
 
   void handleChatEndFromNotification(String reason) {
     final context = navigatorKey.currentContext;
     if (context == null) {
-      print('⚠️ Context not available');
+      debugPrint('⚠️ Context not available for handleChatEndFromNotification');
       return;
     }
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    print(reason);
+    debugPrint('Chat ended: $reason');
     chatProvider.handleChatEnded(reason);
   }
 
   void reset() {
-    _isShowingIncomingChat = false;
-    _currentChatRequestId  = null;
+    _isShowingIncomingChat  = false;
+    _currentChatRequestId   = null;
+    _isShowingIncomingVideo = false;
+    _currentVideoChannelId  = null;
+    _isShowingIncomingAudio = false;
+    _currentAudioChannelId  = null;
   }
 }

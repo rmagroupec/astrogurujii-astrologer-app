@@ -1,3 +1,12 @@
+// lib/main.dart
+//
+// FIXES:
+// 1. ✅ onNotificationAction — Accept button now goes DIRECTLY to call screen
+//       (was wrongly calling showIncomingAudioCall which re-shows the IncomingScreen)
+// 2. ✅ _parsePayload — URI-decodes values (LocalNotificationService encodes them)
+// 3. ✅ firebaseMessagingBackgroundHandler — also accepts type-based trigger
+//       in case server sends type='audio'/'video'/'chat' without notification_type='initiate'
+
 import 'package:astrologer_app/features/service/provider/ChatProvider.dart';
 import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart';
 import 'package:astrologer_app/features/service/provider/audio_call_provider.dart';
@@ -16,14 +25,22 @@ import 'core/providers/theme_provider.dart';
 import 'core/providers/locale_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// ── Background handler (runs in separate isolate when app is killed/background) ──
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
   final data             = message.data;
-  final notificationType = data['notification_type'];
+  final notificationType = data['notification_type'] ?? '';
+  final callType         = data['type'] ?? '';
 
-  if (notificationType == 'initiate') {
+  // ✅ FIX: Accept EITHER notification_type == 'initiate' OR known call types
+  final isIncomingCall = notificationType == 'initiate' ||
+      callType == 'audio' ||
+      callType == 'video' ||
+      callType == 'chat';
+
+  if (isIncomingCall) {
     await LocalNotificationService.showIncomingCall(
       title  : data['title'] ?? 'Incoming Call',
       body   : '${data['user_name'] ?? 'Someone'} is calling you',
@@ -34,6 +51,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 final callStatusService = CallStatusService();
 
+// ── Notification action handler (Accept / Reject button taps) ────────────────
 void onNotificationAction(NotificationResponse response) async {
   final payload   = _parsePayload(response.payload);
   final channelId = payload['channel_id'];
@@ -41,38 +59,41 @@ void onNotificationAction(NotificationResponse response) async {
 
   if (channelId == null || channelId.isEmpty) return;
 
-  final prefs  = await SharedPreferences.getInstance();
+  final prefs   = await SharedPreferences.getInstance();
   final astroId = prefs.getString('astro_id') ?? '';
 
   switch (response.actionId) {
+
     case LocalNotificationService.acceptAction:
+      // Update status first
       await callStatusService.updateCallStatus(
         channelId: channelId,
         status   : 'accept_astro',
       );
+
+      // ✅ FIX: go DIRECTLY to the active call screen — user already accepted
+      //        Do NOT call showIncomingAudioCall (that re-shows the incoming screen)
       if (type == 'chat') {
         NavigationManager().openChatScreen(
           channelId : channelId,
           astroId   : astroId,
-          userId    : payload['user_id']!,
-          userName  : payload['user_name']!,
-          userAvatar: payload['user_image']!,
+          userId    : payload['user_id']    ?? '',
+          userName  : payload['user_name']  ?? '',
+          userAvatar: payload['user_image'] ?? '',
         );
-      }
-      if (type == 'audio') {
-        NavigationManager().showIncomingAudioCall(
-          token     : payload['agora_token'] ?? '',
+      } else if (type == 'audio') {
+        NavigationManager().openAudioCallScreen(
           channelId : channelId,
-          userName  : payload['user_name']!,
-          userAvatar: payload['user_image']!,
+          token     : payload['agora_token'] ?? '',
+          userName  : payload['user_name']   ?? '',
+          userAvatar: payload['user_image']  ?? '',
         );
-      }
-      if (type == 'video') {
-        NavigationManager().showIncomingVideoCall(
-          token     : payload['agora_token'] ?? '',
+      } else if (type == 'video') {
+        NavigationManager().openVideoCallScreen(
           channelId : channelId,
-          userName  : payload['user_name']!,
-          userAvatar: payload['user_image']!,
+          token     : payload['agora_token'] ?? '',
+          userName  : payload['user_name']   ?? '',
+          userAvatar: payload['user_image']  ?? '',
         );
       }
       break;
@@ -83,37 +104,67 @@ void onNotificationAction(NotificationResponse response) async {
         status   : 'reject_astro',
       );
       break;
+
+    default:
+      // Notification body tapped (no actionId) — show IncomingCallScreen
+      // so the astrologer can still accept or reject
+      if (type == 'audio') {
+        NavigationManager().showIncomingAudioCall(
+          token     : payload['agora_token'] ?? '',
+          channelId : channelId,
+          userName  : payload['user_name']   ?? '',
+          userAvatar: payload['user_image']  ?? '',
+        );
+      } else if (type == 'video') {
+        NavigationManager().showIncomingVideoCall(
+          token     : payload['agora_token'] ?? '',
+          channelId : channelId,
+          userName  : payload['user_name']   ?? '',
+          userAvatar: payload['user_image']  ?? '',
+        );
+      } else if (type == 'chat') {
+        NavigationManager().showIncomingChatRequest(
+          requestId     : channelId,
+          userName      : payload['user_name']   ?? '',
+          userAvatar    : payload['user_image']  ?? '',
+          messagePreview: 'Incoming chat request',
+          channelId     : channelId,
+          userId        : payload['user_id']     ?? '',
+          astroId       : astroId,
+        );
+      }
+      break;
   }
 }
 
+// ✅ FIX: URI-decode values — LocalNotificationService encodes them with
+//         Uri.encodeComponent so spaces/special chars survive the payload string.
 Map<String, String> _parsePayload(String? payload) {
-  if (payload == null) return {};
+  if (payload == null || payload.isEmpty) return {};
   return Map.fromEntries(
-    payload.split('&').map((e) {
-      final parts = e.split('=');
-      return MapEntry(parts[0], parts.length > 1 ? parts[1] : '');
+    payload.split('&').where((e) => e.contains('=')).map((e) {
+      final idx   = e.indexOf('=');
+      final key   = e.substring(0, idx);
+      final value = Uri.decodeComponent(e.substring(idx + 1));
+      return MapEntry(key, value);
     }),
   );
 }
 
-// ─── Permission helper ────────────────────────────────────────────────────────
-
-/// Requests camera, microphone, notification and phone-state permissions.
-/// Shows a settings-redirect dialog if any critical permission is permanently
-/// denied (camera or mic) — the app cannot make calls without them.
+// ── Permission helper ─────────────────────────────────────────────────────────
 Future<void> _requestPermissions(BuildContext context) async {
-  // Request all at once
   final statuses = await [
     Permission.camera,
     Permission.microphone,
     Permission.notification,
-    Permission.phone,          // needed for audio call integration
-    Permission.bluetooth,      // needed for BT headsets on some Android builds
+    Permission.phone,
+    Permission.bluetooth,
     Permission.bluetoothConnect,
+    Permission.systemAlertWindow
   ].request();
 
-  final camDenied  = statuses[Permission.camera]     == PermissionStatus.permanentlyDenied;
-  final micDenied  = statuses[Permission.microphone] == PermissionStatus.permanentlyDenied;
+  final camDenied = statuses[Permission.camera]     == PermissionStatus.permanentlyDenied;
+  final micDenied = statuses[Permission.microphone] == PermissionStatus.permanentlyDenied;
 
   if ((camDenied || micDenied) && context.mounted) {
     await showDialog<void>(
@@ -143,8 +194,7 @@ Future<void> _requestPermissions(BuildContext context) async {
   }
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
+// ── Main ──────────────────────────────────────────────────────────────────────
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -170,17 +220,14 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => AudioCallProvider()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
-         ChangeNotifierProvider(create: (_) => VideoCallProvider()),
+        ChangeNotifierProvider(create: (_) => VideoCallProvider()),
       ],
-      builder: (context, child) => _PermissionWrapper(child: const MyApp())
+      builder: (context, child) => _PermissionWrapper(child: const MyApp()),
     ),
   );
 }
 
-// ─── Thin wrapper that requests permissions after the first frame ─────────────
-// Using a wrapper widget (instead of requesting in main()) lets us show a
-// proper dialog with a BuildContext and avoids blocking app startup.
-
+// ── Permission wrapper ────────────────────────────────────────────────────────
 class _PermissionWrapper extends StatefulWidget {
   final Widget child;
   const _PermissionWrapper({required this.child});
@@ -193,7 +240,6 @@ class _PermissionWrapperState extends State<_PermissionWrapper> {
   @override
   void initState() {
     super.initState();
-    // Request after first frame so MaterialApp / Navigator are ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestPermissions(context);
     });

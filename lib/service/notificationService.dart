@@ -1,20 +1,12 @@
-// lib/service/notificationService.dart  (ASTROLOGER APP — FINAL)
+// lib/service/notificationService.dart
 //
-// CHANGES vs current:
-// 1. ✅ Foreground handling REMOVED — now done by _AppRoot in app.dart (avoids duplicate)
-// 2. ✅ onMessageOpenedApp → goes directly to call screen (background tap on body)
-// 3. ✅ getInitialMessage → goes directly to call screen (killed app)
-// 4. Token management UNCHANGED
+// FIXES:
+// 1. ✅ _handleOpenedApp — retry loop waits for navigator before navigating
+//       (fixes background/killed: notification body tap doing nothing)
+// 2. ✅ Removed stale null-guard `if (nav == null) return` that fired immediately
 
-import 'package:astrologer_app/features/service/AudioCallScreen.dart';
-import 'package:astrologer_app/features/service/ChatScreen.dart';
-import 'package:astrologer_app/features/service/VideoCallScreen.dart';
-import 'package:astrologer_app/features/service/provider/ChatProvider.dart';
-import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart';
-import 'package:astrologer_app/features/service/provider/audio_call_provider.dart';
 import 'package:astrologer_app/features/service/service/navigationManager.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
@@ -36,70 +28,80 @@ class NotificationService {
       await _generateFCMToken();
       _fcm.onTokenRefresh.listen(_handleTokenRefresh);
 
-      // ── Foreground handled by _AppRoot._onForeground() in app.dart ─────
+      // ── Foreground handled by _AppRoot._onForegroundMessage() in app.dart ─
       // Do NOT add FirebaseMessaging.onMessage here — would show duplicate
 
-      // ── Background: user tapped notification BODY (not action button) ───
+      // ── Background: user tapped notification BODY (not action button) ─────
       FirebaseMessaging.onMessageOpenedApp.listen(_handleOpenedApp);
 
       // ── Killed: app opened via notification ──────────────────────────────
       final initial = await _fcm.getInitialMessage();
       if (initial != null) {
+        // Small delay so the Flutter engine finishes booting
         await Future.delayed(const Duration(milliseconds: 800));
         _handleOpenedApp(initial);
       }
     }
   }
 
-  // ── Background / killed: notification body tapped → go to call screen ────
-  // (Action button taps are handled by onNotificationAction in main.dart)
+  // ── Background / killed: notification body tapped → show IncomingCallScreen ─
+  // ✅ FIX: retry loop waits up to 5s for navigator before navigating
   Future<void> _handleOpenedApp(RemoteMessage message) async {
     final data       = message.data;
     final type       = data['type'] ?? '';
     final channelId  = data['channel_id'] ?? '';
-    final agoraToken = data['agora_token']?? '';
-    final userName   = data['user_name']  ?? '';
-    final userImage  = data['user_image'] ?? '';
-    final userId     = data['user_id']    ?? '';
+    final agoraToken = data['agora_token'] ?? '';
+    final userName   = data['user_name']   ?? '';
+    final userImage  = data['user_image']  ?? '';
+    final userId     = data['user_id']     ?? '';
 
     if (channelId.isEmpty) return;
 
     final prefs   = await SharedPreferences.getInstance();
     final astroId = prefs.getString('astro_id') ?? '';
 
-    final nav = NavigationManager().navigatorKey.currentState;
-    if (nav == null) return;
+    // ✅ Wait for navigator — app may be waking from background or killed state
+    int retries = 0;
+    while (NavigationManager().navigatorKey.currentState == null && retries < 25) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      retries++;
+    }
 
-    // Tapping the notification body → show the incoming screen so
-    // the astrologer can still accept or reject
+    if (NavigationManager().navigatorKey.currentState == null) {
+      print('❌ Navigator never became ready in _handleOpenedApp');
+      return;
+    }
+
+    // Tapping the notification body → show IncomingCallScreen so the
+    // astrologer can still accept or reject
     if (type == 'video') {
       NavigationManager().showIncomingVideoCall(
-        token    : agoraToken,
-        channelId: channelId,
-        userName : userName,
+        token     : agoraToken,
+        channelId : channelId,
+        userName  : userName,
         userAvatar: userImage,
       );
     } else if (type == 'audio') {
       NavigationManager().showIncomingAudioCall(
-        token    : agoraToken,
-        channelId: channelId,
-        userName : userName,
+        token     : agoraToken,
+        channelId : channelId,
+        userName  : userName,
         userAvatar: userImage,
       );
     } else if (type == 'chat') {
       NavigationManager().showIncomingChatRequest(
-        requestId    : channelId,
-        userName     : userName,
-        userAvatar   : userImage,
+        requestId     : channelId,
+        userName      : userName,
+        userAvatar    : userImage,
         messagePreview: 'Incoming chat request',
-        channelId    : channelId,
-        userId       : userId,
-        astroId      : astroId,
+        channelId     : channelId,
+        userId        : userId,
+        astroId       : astroId,
       );
     }
   }
 
-  // ── Token management (UNCHANGED) ──────────────────────────────────────────
+  // ── Token management ──────────────────────────────────────────────────────
   Future<String?> _generateFCMToken() async {
     try {
       _fcmToken = await _fcm.getToken();
@@ -124,7 +126,8 @@ class NotificationService {
   Future<void> _saveTokenLocally(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fcm_token', token);
-    await prefs.setInt('fcm_token_timestamp', DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt(
+        'fcm_token_timestamp', DateTime.now().millisecondsSinceEpoch);
   }
 
   Future<void> _sendTokenToBackend(String token) async {
@@ -150,6 +153,9 @@ class NotificationService {
     return await _generateFCMToken();
   }
 
-  Future<void> subscribeToTopic(String topic)   async => _fcm.subscribeToTopic(topic);
-  Future<void> unsubscribeFromTopic(String topic) async => _fcm.unsubscribeFromTopic(topic);
+  Future<void> subscribeToTopic(String topic) async =>
+      _fcm.subscribeToTopic(topic);
+
+  Future<void> unsubscribeFromTopic(String topic) async =>
+      _fcm.unsubscribeFromTopic(topic);
 }

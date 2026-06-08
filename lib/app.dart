@@ -1,4 +1,9 @@
 // lib/app.dart
+//
+// FIX: _onForegroundMessage — the old guard `if (type != 'initiate') return`
+//      was blocking all messages where type='audio'/'video'/'chat' (no notification_type).
+//      Now accepts EITHER notification_type=='initiate' OR a known call type directly.
+
 import 'dart:async';
 
 import 'package:astrologer_app/core/utils/size_config.dart';
@@ -27,15 +32,15 @@ class MyApp extends StatelessWidget {
     return Consumer2<ThemeProvider, LocaleProvider>(
       builder: (context, themeProvider, localeProvider, _) {
         return MaterialApp(
-          navigatorKey          : NavigationManager().navigatorKey,
+          navigatorKey              : NavigationManager().navigatorKey,
           debugShowCheckedModeBanner: false,
-          title                 : 'Professional App',
-          theme                 : AppTheme.lightTheme,
-          darkTheme             : AppTheme.darkTheme,
-          themeMode             : themeProvider.themeMode,
-          locale                : localeProvider.locale,
-          supportedLocales      : AppLocalizations.supportedLocales,
-          localizationsDelegates: const [
+          title                     : 'Professional App',
+          theme                     : AppTheme.lightTheme,
+          darkTheme                 : AppTheme.darkTheme,
+          themeMode                 : themeProvider.themeMode,
+          locale                    : localeProvider.locale,
+          supportedLocales          : AppLocalizations.supportedLocales,
+          localizationsDelegates    : const [
             AppLocalizations.delegate,
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -44,9 +49,8 @@ class MyApp extends StatelessWidget {
           builder: (context, child) {
             Responsive.init(context);
             FigmaSize.init(context);
-            return child!;               // ✅ No Stack here — overlay uses Flutter Overlay system
+            return child!;
           },
-          // ✅ _AppRoot installs the OverlayEntry once the Navigator is ready
           home: const _AppRoot(),
         );
       },
@@ -55,8 +59,7 @@ class MyApp extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _AppRoot — thin wrapper that installs the floating call overlay once,
-// then immediately shows SplashScreen.
+// _AppRoot — installs overlays and listens for foreground FCM messages
 // ─────────────────────────────────────────────────────────────────────────────
 class _AppRoot extends StatefulWidget {
   const _AppRoot();
@@ -67,24 +70,34 @@ class _AppRoot extends StatefulWidget {
 
 class _AppRootState extends State<_AppRoot> {
   StreamSubscription? _fcmSub;
+
   @override
   void initState() {
     super.initState();
     _fcmSub = FirebaseMessaging.onMessage.listen(_onForegroundMessage);
-    // ✅ Install overlay after first frame — Overlay is ready at this point
+
+    // Install floating overlays after first frame (Overlay is ready then)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AudioCallOverlayManager.install(context);
       ChatOverlayManager.install(context);
-      VideoCallOverlayManager.install(context); 
-      
+      VideoCallOverlayManager.install(context);
     });
-    
   }
-  Future<void> _onForegroundMessage(RemoteMessage message) async {
-    final data = message.data;
-    final type = data['notification_type'] ?? data['type'] ?? '';
 
-    if (type != 'initiate') return; // only handle incoming calls
+  Future<void> _onForegroundMessage(RemoteMessage message) async {
+    final data             = message.data;
+    final notificationType = data['notification_type'] ?? '';
+    final callType         = data['type'] ?? '';
+
+    // ✅ FIX: old guard was `if (type != 'initiate') return` — this blocked
+    //         all messages where server sends type='audio' without notification_type.
+    //         Now we accept EITHER notification_type=='initiate' OR a known call type.
+    final isIncomingCall = notificationType == 'initiate' ||
+        callType == 'audio' ||
+        callType == 'video' ||
+        callType == 'chat';
+
+    if (!isIncomingCall) return;
 
     final channelId  = data['channel_id'] ?? '';
     final agoraToken = data['agora_token'] ?? '';
@@ -93,8 +106,6 @@ class _AppRootState extends State<_AppRoot> {
     final userId     = data['user_id']     ?? '';
 
     if (channelId.isEmpty) return;
-
-    final callType = data['type'] ?? '';
 
     if (callType == 'video') {
       NavigationManager().showIncomingVideoCall(
@@ -111,24 +122,23 @@ class _AppRootState extends State<_AppRoot> {
         userAvatar: userImage,
       );
     } else if (callType == 'chat') {
-       await SharedPreferences.getInstance().then((prefs) {
-        final astroId = prefs.getString('astro_id') ?? '';
-        NavigationManager().showIncomingChatRequest(
-          requestId    : channelId,
-          userName     : userName,
-          userAvatar   : userImage,
-          messagePreview: 'Incoming chat request',
-          channelId    : channelId,
-          userId       : userId,
-          astroId      : astroId,
-        );
-      });
+      final prefs   = await SharedPreferences.getInstance();
+      final astroId = prefs.getString('astro_id') ?? '';
+      NavigationManager().showIncomingChatRequest(
+        requestId     : channelId,
+        userName      : userName,
+        userAvatar    : userImage,
+        messagePreview: 'Incoming chat request',
+        channelId     : channelId,
+        userId        : userId,
+        astroId       : astroId,
+      );
     }
   }
 
   @override
   void dispose() {
-    _fcmSub?.cancel(); // ✅ Always clean up
+    _fcmSub?.cancel();
     super.dispose();
   }
 

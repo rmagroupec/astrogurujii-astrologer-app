@@ -6,6 +6,7 @@
 // 3. ✅ Ringtone guaranteed to stop in _stopAndPop for both accept and decline
 
 import 'package:astrologer_app/core/widgets/RingingWave.dart';
+import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
@@ -33,6 +34,7 @@ class _IncomingAudioCallScreenState extends State<IncomingAudioCallScreen>
   late AnimationController _ringController;
   bool _ringStopped = false;
 
+
   @override
   void initState() {
     super.initState();
@@ -44,31 +46,28 @@ class _IncomingAudioCallScreenState extends State<IncomingAudioCallScreen>
     )..repeat();
 
     // 🔊 ✅ Play ringtone when incoming call arrives
-    FlutterRingtonePlayer().playRingtone(
-      looping: true,
-      volume : 0.8,
-      asAlarm: false,
-    );
+  LocalNotificationService.playRingtone();
   }
 
-  @override
-  void dispose() {
-    _ringController.dispose();
-    _stopRingOnce(); // ✅ Always stop when screen leaves
-    super.dispose();
-  }
+ @override
+void dispose() {
+  _ringController.dispose();
+  _stopRingOnce();
+  super.dispose();
+}
 
-  void _stopRingOnce() {
-    if (_ringStopped) return;
-    _ringStopped = true;
-    FlutterRingtonePlayer().stop();
-  }
+// bool _ringStopped = false;
 
-  void _stopAndPop(String result) {
-    _stopRingOnce();
-    Navigator.pop(context, result);
-  }
+void _stopRingOnce() {
+  if (_ringStopped) return;
+  _ringStopped = true;
+  LocalNotificationService.stopRingtone(); // ✅ centralized stop
+}
 
+void _stopAndPop(String result) {
+  _stopRingOnce();
+  Navigator.pop(context, result);
+}
   @override
   Widget build(BuildContext context) {
     final animation = CurvedAnimation(

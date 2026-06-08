@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>          <!-- ✅ ADD -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/> <!-- ✅ ADD -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>                    <!-- ✅ ADD: wakes screen -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD"/> 
 
     <!-- Remove unwanted Agora permission -->
     <uses-permission

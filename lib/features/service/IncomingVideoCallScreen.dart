@@ -1,3 +1,4 @@
+import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
@@ -36,17 +37,13 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen>
     )..repeat();
 
     /// 🔊 Play ringtone (FIXED)
-    FlutterRingtonePlayer().playRingtone(
-      looping: true,
-      volume: 0.9,
-      asAlarm: false,
-    );
+   LocalNotificationService.playRingtone();
   }
 
   void _stopRingOnce() {
     if (_ringStopped) return;
     _ringStopped = true;
-    FlutterRingtonePlayer().stop();
+    LocalNotificationService.stopRingtone();
   }
 
   @override

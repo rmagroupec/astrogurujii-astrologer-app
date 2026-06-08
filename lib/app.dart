@@ -5,6 +5,7 @@
 //      Now accepts EITHER notification_type=='initiate' OR a known call type directly.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/features/account/SplashScreen.dart';
@@ -12,9 +13,12 @@ import 'package:astrologer_app/features/service/ChatMiniOverlay.dart';
 import 'package:astrologer_app/features/service/VideoCallOverlay.dart';
 import 'package:astrologer_app/features/service/minimized_call_overlay.dart';
 import 'package:astrologer_app/features/service/service/navigationManager.dart';
+import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 
@@ -74,68 +78,110 @@ class _AppRootState extends State<_AppRoot> {
   @override
   void initState() {
     super.initState();
-    _fcmSub = FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+    // _fcmSub = FirebaseMessaging.onMessage.listen(_onForegroundMessage);
 
     // Install floating overlays after first frame (Overlay is ready then)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       AudioCallOverlayManager.install(context);
       ChatOverlayManager.install(context);
       VideoCallOverlayManager.install(context);
+      await _requestAllPermissions(context);
     });
   }
 
-  Future<void> _onForegroundMessage(RemoteMessage message) async {
-    final data             = message.data;
-    final notificationType = data['notification_type'] ?? '';
-    final callType         = data['type'] ?? '';
+  Future<void> _requestAllPermissions(BuildContext context) async {
+  // Step 1: normal runtime permissions
+  await [
+    Permission.camera,
+    Permission.microphone,
+    Permission.notification,
+    Permission.phone,
+    Permission.bluetooth,
+    Permission.bluetoothConnect,
+  ].request();
 
-    // ✅ FIX: old guard was `if (type != 'initiate') return` — this blocked
-    //         all messages where server sends type='audio' without notification_type.
-    //         Now we accept EITHER notification_type=='initiate' OR a known call type.
-    final isIncomingCall = notificationType == 'initiate' ||
-        callType == 'audio' ||
-        callType == 'video' ||
-        callType == 'chat';
+  if (!context.mounted) return;
 
-    if (!isIncomingCall) return;
+  // Step 2: overlay permission
+  if (Platform.isAndroid) {
+    await _requestOverlayPermission(context);
+  }
+}
 
-    final channelId  = data['channel_id'] ?? '';
-    final agoraToken = data['agora_token'] ?? '';
-    final userName   = data['user_name']   ?? '';
-    final userImage  = data['user_image']  ?? '';
-    final userId     = data['user_id']     ?? '';
+Future<void> _requestOverlayPermission(BuildContext context) async {
+  const channel = MethodChannel('com.astrologer.astro/overlay');
 
-    if (channelId.isEmpty) return;
-
-    if (callType == 'video') {
-      NavigationManager().showIncomingVideoCall(
-        token     : agoraToken,
-        channelId : channelId,
-        userName  : userName,
-        userAvatar: userImage,
-      );
-    } else if (callType == 'audio') {
-      NavigationManager().showIncomingAudioCall(
-        token     : agoraToken,
-        channelId : channelId,
-        userName  : userName,
-        userAvatar: userImage,
-      );
-    } else if (callType == 'chat') {
-      final prefs   = await SharedPreferences.getInstance();
-      final astroId = prefs.getString('astro_id') ?? '';
-      NavigationManager().showIncomingChatRequest(
-        requestId     : channelId,
-        userName      : userName,
-        userAvatar    : userImage,
-        messagePreview: 'Incoming chat request',
-        channelId     : channelId,
-        userId        : userId,
-        astroId       : astroId,
-      );
-    }
+  Future<bool> canDraw() async {
+    try {
+      return await channel.invokeMethod<bool>('canDrawOverlays') ?? false;
+    } catch (_) { return false; }
   }
 
+  if (await canDraw()) return; // already granted
+
+  if (!context.mounted) return;
+
+  // ✅ This dialog will actually show because we're inside MaterialApp now
+  final shouldOpen = await showDialog<bool>(
+    context            : context,
+    barrierDismissible : false,
+    builder: (ctx) => AlertDialog(
+      title  : const Text('Allow Display Over Other Apps'),
+      content: const Text(
+        'To show incoming calls when another app is open, '
+        'please enable "Display over other apps" for this app.\n\n'
+        'Tap "Open Settings", toggle it ON, then press back.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child    : const Text('Later'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child    : const Text('Open Settings'),
+        ),
+      ],
+    ),
+  );
+
+  if (shouldOpen != true) return;
+
+  await channel.invokeMethod('openOverlaySettings'); // opens exact settings page
+
+  // Poll until user comes back
+  for (int i = 0; i < 120; i++) {
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (await canDraw()) {
+      debugPrint('✅ Overlay permission granted');
+      return;
+    }
+  }
+}
+
+ Future<void> _onForegroundMessage(RemoteMessage message) async {
+  final data      = message.data;
+  final callType  = data['type'] ?? '';
+  final notifType = data['notification_type'] ?? '';
+
+  debugPrint('📨 Foreground FCM: type=$callType notif=$notifType data=$data');
+
+  final isIncomingCall = notifType == 'initiate' ||
+      callType == 'audio' ||
+      callType == 'video' ||
+      callType == 'chat';
+
+  if (!isIncomingCall) return;
+  if ((data['channel_id'] ?? '').isEmpty) return;
+
+  // ✅ Same as background — show full screen intent which opens incoming page
+  await LocalNotificationService.showIncomingCall(
+    title  : data['title'] ?? 'Incoming Call',
+    body   : '${data['user_name'] ?? 'Someone'} is calling you',
+    payload: data.map((k, v) => MapEntry(k, v.toString())),
+  );
+}
+  
   @override
   void dispose() {
     _fcmSub?.cancel();

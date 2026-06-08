@@ -1,3 +1,4 @@
+import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:flutter/material.dart';
 
 class IncomingChatRequestScreen extends StatefulWidget {
@@ -53,13 +54,23 @@ class _IncomingChatRequestScreenState
         curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
       ),
     );
+    LocalNotificationService.playRingtone();
   }
 
+bool _ringStopped = false;
+
+void _stopRingOnce() {
+  if (_ringStopped) return;
+  _ringStopped = true;
+  LocalNotificationService.stopRingtone();
+}
   @override
   void dispose() {
+     _stopRingOnce();
     _rippleController.dispose();
     super.dispose();
   }
+
 
   void _handleAccept() {
     if (_isHandled) return;

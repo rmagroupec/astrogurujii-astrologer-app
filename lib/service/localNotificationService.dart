@@ -1,14 +1,10 @@
-// lib/service/localNotificationService.dart  (ASTROLOGER APP — FINAL)
-//
-// Shows full-screen notification with Accept/Reject when app is bg/killed.
-// Payload stores ALL fields needed for navigation on Accept tap.
-
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class LocalNotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
-
+  static bool _isRingtonePlaying = false;
   static const String acceptAction = 'ACCEPT_CALL';
   static const String rejectAction = 'REJECT_CALL';
 
@@ -16,24 +12,44 @@ class LocalNotificationService {
     void Function(NotificationResponse) onAction,
   ) async {
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+
     await _plugin.initialize(
       const InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse          : onAction,
-      onDidReceiveBackgroundNotificationResponse: onAction, // ← killed/bg
+      onDidReceiveBackgroundNotificationResponse: onAction,
     );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'astro_incoming_call',
+            'Incoming Calls',
+            description    : 'Incoming call & chat from users',
+            importance     : Importance.max,
+            playSound      : false,
+            enableVibration: false,
+            showBadge      : false,
+          ),
+        );
   }
 
-  // ── Show full-screen incoming call notification ───────────────────────────
-  // Called from firebaseMessagingBackgroundHandler in main.dart
   static Future<void> showIncomingCall({
     required String              title,
     required String              body,
     required Map<String, String> payload,
   }) async {
-    // Build payload string — encode values so special chars survive
     final payloadStr = payload.entries
         .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
         .join('&');
+
+    // ✅ Play ringtone when call arrives
+    FlutterRingtonePlayer().playRingtone(
+      looping: true,
+      volume : 1.0,
+      asAlarm: false,
+    );
 
     final androidDetails = AndroidNotificationDetails(
       'astro_incoming_call',
@@ -41,16 +57,20 @@ class LocalNotificationService {
       channelDescription: 'Incoming call & chat from users',
       importance        : Importance.max,
       priority          : Priority.high,
-      fullScreenIntent  : true,       // ← shows over lock screen
+      fullScreenIntent  : true,
+      visibility        : NotificationVisibility.public,
       category          : AndroidNotificationCategory.call,
-      ongoing           : true,       // ← can't be swiped away
+      ongoing           : true,
       autoCancel        : false,
-      timeoutAfter      : 45000,      // auto-dismiss after 45 s
+      timeoutAfter      : 45000,
+      playSound         : false,
+      enableVibration   : false,
+      silent            : true,
       actions           : const [
         AndroidNotificationAction(
           acceptAction,
           'Accept ✅',
-          showsUserInterface: true,   // ← brings app to foreground
+          showsUserInterface: true,
           cancelNotification: true,
         ),
         AndroidNotificationAction(
@@ -71,11 +91,32 @@ class LocalNotificationService {
     );
   }
 
+  // ✅ Stop ringtone when call is cancelled/accepted/rejected
   static Future<void> cancelCall(String channelId) async {
+    FlutterRingtonePlayer().stop();
     await _plugin.cancel(channelId.hashCode);
   }
 
   static Future<void> cancelAll() async {
+    FlutterRingtonePlayer().stop();
     await _plugin.cancelAll();
+  }
+  static Future<void> stopRingtone() async {
+    if (_isRingtonePlaying) {
+      await FlutterRingtonePlayer().stop();
+      _isRingtonePlaying = false;
+    }
+  }
+
+  // ✅ Centralized play — call from IncomingCallScreen only
+  static Future<void> playRingtone() async {
+    if (!_isRingtonePlaying) {
+      _isRingtonePlaying = true;
+      await FlutterRingtonePlayer().playRingtone(
+        looping: true,
+        volume : 1.0,
+        asAlarm: false,
+      );
+    }
   }
 }

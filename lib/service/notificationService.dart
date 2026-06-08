@@ -7,6 +7,7 @@
 
 import 'package:astrologer_app/features/service/service/navigationManager.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
@@ -46,61 +47,64 @@ class NotificationService {
 
   // ── Background / killed: notification body tapped → show IncomingCallScreen ─
   // ✅ FIX: retry loop waits up to 5s for navigator before navigating
-  Future<void> _handleOpenedApp(RemoteMessage message) async {
-    final data       = message.data;
-    final type       = data['type'] ?? '';
-    final channelId  = data['channel_id'] ?? '';
-    final agoraToken = data['agora_token'] ?? '';
-    final userName   = data['user_name']   ?? '';
-    final userImage  = data['user_image']  ?? '';
-    final userId     = data['user_id']     ?? '';
+ Future<void> _handleOpenedApp(RemoteMessage message) async {
+  final data       = message.data;
+  final type       = data['type'] ?? '';
+  final channelId  = data['channel_id'] ?? '';
+  final agoraToken = data['agora_token'] ?? '';
+  final userName   = data['user_name']   ?? '';
+  final userImage  = data['user_image']  ?? '';
+  final userId     = data['user_id']     ?? '';
 
-    if (channelId.isEmpty) return;
+  debugPrint('📨 _handleOpenedApp: type=$type channel=$channelId');
 
-    final prefs   = await SharedPreferences.getInstance();
-    final astroId = prefs.getString('astro_id') ?? '';
+  if (channelId.isEmpty) return;
 
-    // ✅ Wait for navigator — app may be waking from background or killed state
-    int retries = 0;
-    while (NavigationManager().navigatorKey.currentState == null && retries < 25) {
-      await Future.delayed(const Duration(milliseconds: 200));
-      retries++;
-    }
+  final prefs   = await SharedPreferences.getInstance();
+  final astroId = prefs.getString('astro_id') ?? '';
 
-    if (NavigationManager().navigatorKey.currentState == null) {
-      print('❌ Navigator never became ready in _handleOpenedApp');
-      return;
-    }
-
-    // Tapping the notification body → show IncomingCallScreen so the
-    // astrologer can still accept or reject
-    if (type == 'video') {
-      NavigationManager().showIncomingVideoCall(
-        token     : agoraToken,
-        channelId : channelId,
-        userName  : userName,
-        userAvatar: userImage,
-      );
-    } else if (type == 'audio') {
-      NavigationManager().showIncomingAudioCall(
-        token     : agoraToken,
-        channelId : channelId,
-        userName  : userName,
-        userAvatar: userImage,
-      );
-    } else if (type == 'chat') {
-      NavigationManager().showIncomingChatRequest(
-        requestId     : channelId,
-        userName      : userName,
-        userAvatar    : userImage,
-        messagePreview: 'Incoming chat request',
-        channelId     : channelId,
-        userId        : userId,
-        astroId       : astroId,
-      );
-    }
+  // ✅ Wait for navigator — app waking from background/killed
+  int retries = 0;
+  while (NavigationManager().navigatorKey.currentState == null && retries < 25) {
+    await Future.delayed(const Duration(milliseconds: 200));
+    retries++;
   }
 
+  if (NavigationManager().navigatorKey.currentState == null) {
+    debugPrint('❌ Navigator never ready in _handleOpenedApp');
+    return;
+  }
+
+  // ✅ Reset stale locks so navigation is never blocked
+  NavigationManager().reset();
+
+  // ✅ Go DIRECTLY to incoming screen — not call screen
+  if (type == 'video') {
+    NavigationManager().showIncomingVideoCall(
+      token     : agoraToken,
+      channelId : channelId,
+      userName  : userName,
+      userAvatar: userImage,
+    );
+  } else if (type == 'audio') {
+    NavigationManager().showIncomingAudioCall(
+      token     : agoraToken,
+      channelId : channelId,
+      userName  : userName,
+      userAvatar: userImage,
+    );
+  } else if (type == 'chat') {
+    NavigationManager().showIncomingChatRequest(
+      requestId     : channelId,
+      userName      : userName,
+      userAvatar    : userImage,
+      messagePreview: 'Incoming chat request',
+      channelId     : channelId,
+      userId        : userId,
+      astroId       : astroId,
+    );
+  }
+}
   // ── Token management ──────────────────────────────────────────────────────
   Future<String?> _generateFCMToken() async {
     try {

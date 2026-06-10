@@ -45,11 +45,8 @@ class LocalNotificationService {
         .join('&');
 
     // ✅ Play ringtone when call arrives
-    FlutterRingtonePlayer().playRingtone(
-      looping: true,
-      volume : 1.0,
-      asAlarm: false,
-    );
+    _isRingtonePlaying = true;
+    FlutterRingtonePlayer().playRingtone(looping: true, volume: 1.0, asAlarm: false);
 
     final androidDetails = AndroidNotificationDetails(
       'astro_incoming_call',
@@ -101,12 +98,12 @@ class LocalNotificationService {
     FlutterRingtonePlayer().stop();
     await _plugin.cancelAll();
   }
-  static Future<void> stopRingtone() async {
-    if (_isRingtonePlaying) {
-      await FlutterRingtonePlayer().stop();
-      _isRingtonePlaying = false;
-    }
-  }
+static Future<void> stopRingtone() async {
+  // ✅ Always call stop — don't rely on _isRingtonePlaying flag
+  // The flag can be false if ringtone was started in a background isolate
+  await FlutterRingtonePlayer().stop();
+  _isRingtonePlaying = false;
+}
 
   // ✅ Centralized play — call from IncomingCallScreen only
   static Future<void> playRingtone() async {

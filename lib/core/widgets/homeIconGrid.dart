@@ -28,7 +28,7 @@ class HomeIconGrid extends StatelessWidget {
     final List<Map<String, dynamic>> menuItems = [
       {"icon": "phone.svg", "label": "Call","page": MainReportsScreen(page: "audio",)},
       {"icon": "chat.svg", "label": "Chat","page": MainReportsScreen(page: "chat",)},
-      {"icon": "videocall.svg", "label": "Video Call","page": MainReportsScreen(page: "Video Call",)},
+      {"icon": "videocall.svg", "label": "Video Call","page": MainReportsScreen(page: "video",)},
       {"icon": "online-shopping.svg", "label": "AstroMall","page":MainReportsScreen(page: "Astromall",)},
       {"icon": "live.svg", "label": "Go Live", "page":LiveEventListScreen()},
       {"icon": "phone.svg", "label": "Waitlist","page": Waitlistscreen()},

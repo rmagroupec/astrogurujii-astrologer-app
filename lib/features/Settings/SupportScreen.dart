@@ -17,7 +17,7 @@ class AstrogurujiiSupportScreen extends StatelessWidget {
 
   Future<void> _whatsappSupport() async {
     final uri = Uri.parse(
-      'https://wa.me/$supportWhatsApp?text=Hello%20DivinIQ%20Support',
+      'https://wa.me/$supportWhatsApp?text=Hello%Astrogurujii%20Support',
     );
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

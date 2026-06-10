@@ -72,17 +72,19 @@ void _stopRingOnce() {
   }
 
 
-  void _handleAccept() {
-    if (_isHandled) return;
-    setState(() => _isHandled = true);
-    Navigator.of(context).pop('accept');
-  }
+ void _handleAccept() {
+  if (_isHandled) return;
+  setState(() => _isHandled = true);
+  _stopRingOnce();              // ✅ ADD THIS
+  Navigator.of(context).pop('accept');
+}
 
-  void _handleDecline() {
-    if (_isHandled) return;
-    setState(() => _isHandled = true);
-    Navigator.of(context).pop('decline');
-  }
+ void _handleDecline() {
+  if (_isHandled) return;
+  setState(() => _isHandled = true);
+  _stopRingOnce();              // ✅ ADD THIS
+  Navigator.of(context).pop('decline');
+}
 
   @override
   Widget build(BuildContext context) {

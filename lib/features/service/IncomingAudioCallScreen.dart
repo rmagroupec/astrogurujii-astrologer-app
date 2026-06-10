@@ -57,11 +57,11 @@ void dispose() {
 }
 
 // bool _ringStopped = false;
-
 void _stopRingOnce() {
   if (_ringStopped) return;
   _ringStopped = true;
-  LocalNotificationService.stopRingtone(); // ✅ centralized stop
+  FlutterRingtonePlayer().stop();          // ✅ immediate sync stop
+  LocalNotificationService.stopRingtone(); // updates flag
 }
 
 void _stopAndPop(String result) {

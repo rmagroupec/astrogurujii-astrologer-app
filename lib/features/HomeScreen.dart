@@ -159,38 +159,31 @@ Future<void> _loadPerformance() async {
               ],
               automaticallyImplyLeading: false,
               title: Container(
-                child: Row(
-                  children: [
-                    SizedBox(width: FigmaSize.w(20)),
-                    SVGIconHome(
-                      "assets/images/profile 2.svg",
-                      FigmaSize.h(35),
-                      FigmaSize.w(35),
-                      Colors.black,
-                      () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => AstrologerProfileScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    SizedBox(width: FigmaSize.w(25)),
-                    SVGIconHome(
-                      "assets/images/notification 1.svg",
-                      FigmaSize.h(25),
-                      FigmaSize.w(25),
-                      Colors.black,
-                      () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => NotificationScreen(),
-                          ),
-                        );
-                      },
-                    ),
+  child: Row(
+    children: [
+      SizedBox(width: FigmaSize.w(20)),
+      GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AstrologerProfileScreen(),
+            ),
+          );
+        },
+        child: CircleAvatar(
+          radius: FigmaSize.w(18),
+          backgroundColor: const Color(0xFFFCD417),
+          backgroundImage: (astrologerData?.profileImg != null &&
+                  astrologerData!.profileImg.isNotEmpty)
+              ? NetworkImage(astrologerData!.profileImg)
+              : null,
+          child: (astrologerData?.profileImg == null ||
+                  astrologerData!.profileImg.isEmpty)
+              ? const Icon(Icons.person, color: Colors.white, size: 20)
+              : null,
+        ),
+      ),
                   ],
                 ),
               ),

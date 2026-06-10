@@ -13,6 +13,7 @@ import 'package:astrologer_app/features/service/ChatMiniOverlay.dart';
 import 'package:astrologer_app/features/service/VideoCallOverlay.dart';
 import 'package:astrologer_app/features/service/minimized_call_overlay.dart';
 import 'package:astrologer_app/features/service/service/navigationManager.dart';
+import 'package:astrologer_app/service/incoming_call_router.dart';
 import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -72,20 +73,20 @@ class _AppRoot extends StatefulWidget {
   State<_AppRoot> createState() => _AppRootState();
 }
 
-class _AppRootState extends State<_AppRoot> {
-  StreamSubscription? _fcmSub;
-
+class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver{
   @override
   void initState() {
     super.initState();
-    // _fcmSub = FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+    WidgetsBinding.instance.addObserver(this);
 
-    // Install floating overlays after first frame (Overlay is ready then)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       AudioCallOverlayManager.install(context);
       ChatOverlayManager.install(context);
       VideoCallOverlayManager.install(context);
       await _requestAllPermissions(context);
+
+      // route any call that arrived while we were killed / backgrounded
+      await IncomingCallRouter.handlePending();
     });
   }
 
@@ -182,9 +183,16 @@ Future<void> _requestOverlayPermission(BuildContext context) async {
   );
 }
   
+   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      IncomingCallRouter.handlePending();
+    }
+  }
+
   @override
   void dispose() {
-    _fcmSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 

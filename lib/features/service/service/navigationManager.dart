@@ -201,99 +201,82 @@ class NavigationManager {
   }
 
   // ── Open screens ───────────────────────────────────────────────────────────
+Future<void> openVideoCallScreen({
+  required String channelId,
+  required String token,
+  String userName   = '',
+  String userAvatar = '',
+}) async {
+  final navigator = await _waitForNavigator();
+  if (navigator == null) return;
 
-  void openVideoCallScreen({
-    required String channelId,
-    required String token,
-    String userName   = '',
-    String userAvatar = '',
-  }) {
-    final navigator = navigatorKey.currentState;
-    if (navigator == null) {
-      debugPrint('❌ Navigator not ready for openVideoCallScreen');
-      return;
-    }
+  final provider = VideoCallProvider();
+  activeVideoProvider = provider;
 
-    final provider = VideoCallProvider();
-    activeVideoProvider = provider;
-
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
-          value: provider,
-          child: VideoCallScreen(
-            channelId : channelId,
-            token     : token,
-            userName  : userName,
-            userAvatar: userAvatar,
-          ),
-        ),
+  navigator.push(MaterialPageRoute(
+    builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
+      value: provider,
+      child: VideoCallScreen(
+        channelId : channelId,
+        token     : token,
+        userName  : userName,
+        userAvatar: userAvatar,
       ),
-    );
-  }
+    ),
+  ));
+}
 
-  void openAudioCallScreen({
-    required String channelId,
-    required String token,
-    String userName   = '',
-    String userAvatar = '',
-  }) {
-    final navigator = navigatorKey.currentState;
-    if (navigator == null) {
-      debugPrint('❌ Navigator not ready for openAudioCallScreen');
-      return;
-    }
+Future<void> openChatScreen({
+  required String channelId,
+  required String astroId,
+  required String userId,
+  required String userName,
+  required String userAvatar,
+}) async {
+  final navigator = await _waitForNavigator();
+  if (navigator == null) return;
 
-    final provider = AudioCallProvider();
-    activeAudioProvider = provider;
+  final provider = ChatProvider();
+  activeChatProvider = provider;
 
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
-          value: provider,
-          child: AudioCallScreen(
-            channelId  : channelId,
-            token      : token,
-            callerName : userName,
-            callerImage: userAvatar,
-          ),
-        ),
+  navigator.push(MaterialPageRoute(
+    builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
+      value: provider,
+      child: ChatScreen(
+        channelId : channelId,
+        astroId   : astroId,
+        userId    : userId,
+        userName  : userName,
+        userAvatar: userAvatar,
       ),
-    );
-  }
+    ),
+  ));
+}
+ Future<void> openAudioCallScreen({
+  required String channelId,
+  required String token,
+  String userName   = '',
+  String userAvatar = '',
+}) async {
+  final navigator = await _waitForNavigator();   // <- was: navigatorKey.currentState
+  if (navigator == null) return;
 
-  void openChatScreen({
-    required String channelId,
-    required String astroId,
-    required String userId,
-    required String userName,
-    required String userAvatar,
-  }) {
-    final navigator = navigatorKey.currentState;
-    if (navigator == null) {
-      debugPrint('❌ Navigator not ready for openChatScreen');
-      return;
-    }
-
-    final provider = ChatProvider();
-    activeChatProvider = provider;
-
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
-          value: provider,
-          child: ChatScreen(
-            channelId : channelId,
-            astroId   : astroId,
-            userId    : userId,
-            userName  : userName,
-            userAvatar: userAvatar,
-          ),
-        ),
+  final provider = AudioCallProvider();
+  activeAudioProvider = provider;
+  navigator.push(MaterialPageRoute(
+    builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
+      value: provider,
+      child: AudioCallScreen(
+        channelId  : channelId,
+        token      : token,
+        callerName : userName,
+        callerImage: userAvatar,
       ),
-    );
-  }
+    ),
+  ));
+}
 
+  
   void handleChatEndFromNotification(String reason) {
     final context = navigatorKey.currentContext;
     if (context == null) {

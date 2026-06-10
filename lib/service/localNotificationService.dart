@@ -116,4 +116,22 @@ static Future<void> stopRingtone() async {
       );
     }
   }
+
+  static Future<Map<String, String>?> launchPayload() async {
+  final details = await _plugin.getNotificationAppLaunchDetails();
+  if (details?.didNotificationLaunchApp != true) return null;
+  final p = details?.notificationResponse?.payload;
+  if (p == null || p.isEmpty) return null;
+  return decodePayload(p);
+}
+
+static Map<String, String> decodePayload(String raw) {
+  final map = <String, String>{};
+  for (final part in raw.split('&')) {
+    final i = part.indexOf('=');
+    if (i <= 0) continue;
+    map[part.substring(0, i)] = Uri.decodeComponent(part.substring(i + 1));
+  }
+  return map;
+}
 }

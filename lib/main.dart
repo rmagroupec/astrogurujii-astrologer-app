@@ -14,6 +14,7 @@ import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart'
 import 'package:astrologer_app/features/service/provider/audio_call_provider.dart';
 import 'package:astrologer_app/features/service/service/navigationManager.dart';
 import 'package:astrologer_app/service/ChatCallStatusService.dart';
+import 'package:astrologer_app/service/incoming_call_router.dart';
 import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:astrologer_app/service/notificationService.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -34,122 +35,59 @@ import 'package:shared_preferences/shared_preferences.dart';
 // ── Background handler (runs in separate isolate when app is killed/background) ──
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(           // reuse your exact options
+      apiKey           : "AIzaSyDMOLSzOQbwUsaSg2576yb92UmNMxuf3Xc",
+      appId            : "1:307653017355:android:bc17f957ae29d29bc8ec0e",
+      messagingSenderId: "307653017355",
+      projectId        : "astrogurujii-production",
+      storageBucket    : "astrogurujii-production.firebasestorage.app",
+      databaseURL      : "https://astrogurujii-production-default-rtdb.firebaseio.com",
+    ),
+  );
 
-  final data      = message.data;
-  final callType  = data['type'] ?? '';
-  final notifType = data['notification_type'] ?? '';
+  final data = message.data;
+  if (!IncomingCallRouter.isCallData(data)) return;
 
-  final isIncomingCall = notifType == 'initiate' ||
-      callType == 'audio' ||
-      callType == 'video' ||
-      callType == 'chat';
+  // Persist so the app can replay it on first frame / resume (fixes #3).
+  await IncomingCallRouter.persist(data);
 
-  if (!isIncomingCall) return;
-
-  // ✅ Must re-initialize in background isolate before calling show
+  // Re-init the plugin in THIS isolate, then show the silent full-screen banner.
   await LocalNotificationService.initialize(onNotificationAction);
-
   await LocalNotificationService.showIncomingCall(
     title  : data['title'] ?? 'Incoming Call',
     body   : '${data['user_name'] ?? 'Someone'} is calling you',
     payload: data.map((k, v) => MapEntry(k, v.toString())),
   );
+  // NOTE: no FlutterRingtonePlayer here — the incoming screen owns the ring.
 }
 
 final callStatusService = CallStatusService();
 
 // ── Notification action handler (Accept / Reject button taps) ────────────────
+
+@pragma('vm:entry-point')
 void onNotificationAction(NotificationResponse response) async {
-  // ✅ Stop ringtone FIRST — before any async work
-  // Works for all cases: accept, reject, body tap
-  FlutterRingtonePlayer().stop();
+  final payload   = LocalNotificationService.decodePayload(response.payload ?? '');
+  final channelId = payload['channel_id'] ?? '';
+  if (channelId.isEmpty) return;
+
+  // banner is cancelled by cancelNotification:true; make sure ring is dead too
   await LocalNotificationService.stopRingtone();
+  await LocalNotificationService.cancelCall(channelId);
 
-  final payload   = _parsePayload(response.payload);
-  final channelId = payload['channel_id'];
-  final type      = payload['type'];
-
-  if (channelId == null || channelId.isEmpty) return;
-
-  final prefs   = await SharedPreferences.getInstance();
-  final astroId = prefs.getString('astro_id') ?? '';
-
-  switch (response.actionId) {
-    case LocalNotificationService.acceptAction:
-      await LocalNotificationService.cancelCall(channelId);
-      await callStatusService.updateCallStatus(
-        channelId: channelId,
-        status   : 'accept_astro',
-      );
-      if (type == 'audio') {
-        NavigationManager().openAudioCallScreen(
-          channelId : channelId,
-          token     : payload['agora_token'] ?? '',
-          userName  : payload['user_name']   ?? '',
-          userAvatar: payload['user_image']  ?? '',
-        );
-      } else if (type == 'video') {
-        NavigationManager().openVideoCallScreen(
-          channelId : channelId,
-          token     : payload['agora_token'] ?? '',
-          userName  : payload['user_name']   ?? '',
-          userAvatar: payload['user_image']  ?? '',
-        );
-      } else if (type == 'chat') {
-        NavigationManager().openChatScreen(
-          channelId : channelId,
-          astroId   : astroId,
-          userId    : payload['user_id']    ?? '',
-          userName  : payload['user_name']  ?? '',
-          userAvatar: payload['user_image'] ?? '',
-        );
-      }
-      break;
-
-    case LocalNotificationService.rejectAction:
-      await LocalNotificationService.cancelCall(channelId);
-      await callStatusService.updateCallStatus(
-        channelId: channelId,
-        status   : 'reject_astro',
-      );
-      break;
-
-    default:
-      await LocalNotificationService.cancelCall(channelId);
-      int retries = 0;
-      while (NavigationManager().navigatorKey.currentState == null && retries < 25) {
-        await Future.delayed(const Duration(milliseconds: 200));
-        retries++;
-      }
-      NavigationManager().reset();
-      if (type == 'audio') {
-        NavigationManager().showIncomingAudioCall(
-          token     : payload['agora_token'] ?? '',
-          channelId : channelId,
-          userName  : payload['user_name']   ?? '',
-          userAvatar: payload['user_image']  ?? '',
-        );
-      } else if (type == 'video') {
-        NavigationManager().showIncomingVideoCall(
-          token     : payload['agora_token'] ?? '',
-          channelId : channelId,
-          userName  : payload['user_name']   ?? '',
-          userAvatar: payload['user_image']  ?? '',
-        );
-      } else if (type == 'chat') {
-        NavigationManager().showIncomingChatRequest(
-          requestId     : channelId,
-          userName      : payload['user_name']   ?? '',
-          userAvatar    : payload['user_image']  ?? '',
-          messagePreview: 'Incoming chat request',
-          channelId     : channelId,
-          userId        : payload['user_id']     ?? '',
-          astroId       : astroId,
-        );
-      }
-      break;
+  if (response.actionId == LocalNotificationService.rejectAction) {
+    await callStatusService.updateCallStatus(
+        channelId: channelId, status: 'reject_astro');
+    await IncomingCallRouter.clear();
+    return;
   }
+
+  // ACCEPT button OR body tap -> persist + bring app forward.
+  // Actual navigation happens in handlePending() when the UI is visible,
+  // which is what makes accept-from-killed / accept-from-lockscreen reliable.
+  final accept = response.actionId == LocalNotificationService.acceptAction;
+  await IncomingCallRouter.persist(payload, accept: accept);
 }
 // ✅ FIX: URI-decode values — LocalNotificationService encodes them with
 //         Uri.encodeComponent so spaces/special chars survive the payload string.
@@ -258,76 +196,8 @@ Future<void> main() async {
   await LocalNotificationService.initialize(onNotificationAction);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   await NotificationService().initialize();
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-  debugPrint('🔥 FOREGROUND HIT: ${message.data}');
-
-  final data      = message.data;
-  final callType  = data['type'] ?? '';
-  final notifType = data['notification_type'] ?? '';
-
-  final isIncomingCall = notifType == 'initiate' ||
-      callType == 'audio' ||
-      callType == 'video' ||
-      callType == 'chat';
-
-  if (!isIncomingCall) return;
-  if ((data['channel_id'] ?? '').isEmpty) return;
-
-  final channelId  = data['channel_id'] ?? '';
-  final agoraToken = data['agora_token'] ?? '';
-  final userName   = data['user_name']   ?? '';
-  final userImage  = data['user_image']  ?? '';
-  final userId     = data['user_id']     ?? '';
-
-  // ✅ Reset stale locks
-  NavigationManager().reset();
-
-  // ✅ Wait for navigator
-  int retries = 0;
-  while (NavigationManager().navigatorKey.currentState == null && retries < 20) {
-    await Future.delayed(const Duration(milliseconds: 100));
-    retries++;
-  }
-
-  if (NavigationManager().navigatorKey.currentState == null) {
-    // Navigator not ready — fallback to fullScreenIntent notification
-    await LocalNotificationService.showIncomingCall(
-      title  : data['title'] ?? 'Incoming Call',
-      body   : '${data['user_name'] ?? 'Someone'} is calling you',
-      payload: data.map((k, v) => MapEntry(k, v.toString())),
-    );
-    return;
-  }
-
-  // ✅ Navigator ready — open incoming screen directly, no notification needed
-  if (callType == 'audio') {
-    NavigationManager().showIncomingAudioCall(
-      token     : agoraToken,
-      channelId : channelId,
-      userName  : userName,
-      userAvatar: userImage,
-    );
-  } else if (callType == 'video') {
-    NavigationManager().showIncomingVideoCall(
-      token     : agoraToken,
-      channelId : channelId,
-      userName  : userName,
-      userAvatar: userImage,
-    );
-  } else if (callType == 'chat') {
-    final prefs   = await SharedPreferences.getInstance();
-    final astroId = prefs.getString('astro_id') ?? '';
-    NavigationManager().showIncomingChatRequest(
-      requestId     : channelId,
-      userName      : userName,
-      userAvatar    : userImage,
-      messagePreview: 'Incoming chat request',
-      channelId     : channelId,
-      userId        : userId,
-      astroId       : astroId,
-    );
-  }
-});
+  
+FirebaseMessaging.onMessage.listen(IncomingCallRouter.handleForeground);
 
   runApp(
     MultiProvider(

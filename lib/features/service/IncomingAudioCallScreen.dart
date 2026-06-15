@@ -1,14 +1,10 @@
 // lib/features/service/IncomingAudioCallScreen.dart
-//
-// Changes:
-// 1. ✅ Ringtone plays via FlutterRingtonePlayer on initState (already was present — kept)
-// 2. ✅ Fixed typo "Incomming" → "Incoming"
-// 3. ✅ Ringtone guaranteed to stop in _stopAndPop for both accept and decline
+// PRODUCTION-GRADE ringtone + animation + accept/decline
 
 import 'package:astrologer_app/core/widgets/RingingWave.dart';
+import 'package:astrologer_app/service/incoming_call_router.dart';
 import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class IncomingAudioCallScreen extends StatefulWidget {
   final String channelId;
@@ -31,43 +27,48 @@ class IncomingAudioCallScreen extends StatefulWidget {
 
 class _IncomingAudioCallScreenState extends State<IncomingAudioCallScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ringController;
-  bool _ringStopped = false;
 
+  late AnimationController _ringController;
+  bool _handled = false; // prevents double accept/decline
 
   @override
   void initState() {
     super.initState();
 
-    // 🔔 Ring animation
     _ringController = AnimationController(
       vsync   : this,
       duration: const Duration(seconds: 2),
     )..repeat();
 
-    // 🔊 ✅ Play ringtone when incoming call arrives
-  LocalNotificationService.playRingtone();
+    // Start ringtone — this is the ONLY place it should be started
+    LocalNotificationService.playRingtone();
   }
 
- @override
-void dispose() {
-  _ringController.dispose();
-  _stopRingOnce();
-  super.dispose();
-}
+  @override
+  void dispose() {
+    _ringController.dispose();
+    // Always stop on dispose — covers back-button, timeout, etc.
+    LocalNotificationService.stopRingtone();
+    super.dispose();
+  }
 
-// bool _ringStopped = false;
-void _stopRingOnce() {
-  if (_ringStopped) return;
-  _ringStopped = true;
-  FlutterRingtonePlayer().stop();          // ✅ immediate sync stop
-  LocalNotificationService.stopRingtone(); // updates flag
-}
+  void _accept() {
+    if (_handled) return;
+    _handled = true;
+    LocalNotificationService.stopRingtone();
+    // Clear persisted call data immediately so a restart won't re-ring
+    IncomingCallRouter.clear();
+    Navigator.of(context).pop('audio_accept');
+  }
 
-void _stopAndPop(String result) {
-  _stopRingOnce();
-  Navigator.pop(context, result);
-}
+  void _decline() {
+    if (_handled) return;
+    _handled = true;
+    LocalNotificationService.stopRingtone();
+    IncomingCallRouter.clear();
+    Navigator.of(context).pop('audio_decline');
+  }
+
   @override
   Widget build(BuildContext context) {
     final animation = CurvedAnimation(
@@ -75,222 +76,95 @@ void _stopAndPop(String result) {
       curve : Curves.easeOut,
     );
 
-    return Scaffold(
-      body: Container(
-        width     : double.infinity,
-        height    : double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin  : Alignment.topCenter,
-            end    : Alignment.bottomCenter,
-            colors : [
-              Color(0xFF0D2B6B),
-              Color(0xFF0A2356),
-              Color(0xFF071A42),
-            ],
-          ),
-        ),
-        child: SafeArea(
+    return PopScope(
+      canPop: false, // prevent back button — must use decline
+      child : Scaffold(
+        backgroundColor: const Color(0xFF1A1A2E),
+        body: SafeArea(
           child: Column(
             children: [
-              // ── Top bar ──────────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                child: Row(
+              const Spacer(),
+
+              // ── Caller info ──────────────────────────────────────────────
+              Text(
+                'Incoming Audio Call',
+                style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 14,
+                    letterSpacing: 1),
+              ),
+              const SizedBox(height: 16),
+
+              // Ripple + avatar
+              SizedBox(
+                width : 200,
+                height: 200,
+                child : Stack(
+                  alignment: Alignment.center,
                   children: [
-                    _circleIconBtn(
-                      icon : Icons.chevron_left,
-                      onTap: () => _stopAndPop('audio_reject'),
+                    // Ripple rings
+                    AnimatedBuilder(
+                      animation: animation,
+                      builder : (_, __) => Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          _ring(animation.value,        110),
+                          _ring((animation.value + 0.3) % 1.0, 95),
+                          _ring((animation.value + 0.6) % 1.0, 80),
+                        ],
+                      ),
                     ),
-                    const Spacer(),
-                    _circleIconBtn(
-                      icon : Icons.more_horiz,
-                      onTap: () {},
+                    // Avatar
+                    CircleAvatar(
+                      radius     : 52,
+                      backgroundColor: const Color(0xFFFCD417),
+                      backgroundImage: widget.profile.isNotEmpty
+                          ? NetworkImage(widget.profile) : null,
+                      child: widget.profile.isEmpty
+                          ? const Icon(Icons.person,
+                              color: Colors.white, size: 48)
+                          : null,
                     ),
                   ],
                 ),
               ),
 
               const SizedBox(height: 20),
-
-              // ── Avatar with ringing waves ─────────────────────────
-              SizedBox(
-                width : 220,
-                height: 220,
-                child : Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Animated ripple rings
-                    AnimatedBuilder(
-                      animation: _ringController,
-                      builder  : (_, __) => Stack(
-                        alignment: Alignment.center,
-                        children : List.generate(3, (i) {
-                          final progress =
-                              ((_ringController.value + i * 0.3) % 1.0);
-                          return Container(
-                            width : 140 + (progress * 80),
-                            height: 140 + (progress * 80),
-                            decoration: BoxDecoration(
-                              shape : BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white
-                                    .withOpacity((1 - progress) * 0.5),
-                                width: 1.5,
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-
-                    // Gold-bordered avatar
-                    Container(
-                      width     : 110,
-                      height    : 110,
-                      decoration: BoxDecoration(
-                        shape : BoxShape.circle,
-                        border: Border.all(
-                            color: const Color(0xFFE6A817), width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            color     : const Color(0xFFE6A817)
-                                .withOpacity(0.4),
-                            blurRadius: 20,
-                          ),
-                        ],
-                      ),
-                      child: ClipOval(
-                        child: widget.profile.isNotEmpty
-                            ? Image.network(
-                                widget.profile,
-                                fit         : BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    _avatarFallback(),
-                              )
-                            : _avatarFallback(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 28),
-
-              // ── Caller name ────────────────────────────────────────
-              Text(
-                widget.userName,
-                style: const TextStyle(
-                  color      : Colors.white,
-                  fontSize   : 26,
-                  fontWeight : FontWeight.bold,
-                  letterSpacing: 0.2,
-                ),
-              ),
-
+              Text(widget.userName,
+                  style: const TextStyle(
+                      color     : Colors.white,
+                      fontSize  : 26,
+                      fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-
-              // ── Status ─────────────────────────────────────────────
-              Text(
-                'Incoming Audio Call',   // ✅ Fixed typo
-                style: TextStyle(
-                  color   : Colors.white.withOpacity(0.6),
-                  fontSize: 15,
-                ),
-              ),
+              const Text('Calling you…',
+                  style: TextStyle(color: Colors.white54, fontSize: 16)),
 
               const Spacer(),
 
-              // ── Accept / Decline ────────────────────────────────────
+              // ── Action buttons ───────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 60, vertical: 0),
+                    horizontal: 48, vertical: 40),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // ✅ Accept
-                    Column(
-                      children: [
-                        GestureDetector(
-                          onTap: () => _stopAndPop('audio_accept'),
-                          child: Container(
-                            width : 70,
-                            height: 70,
-                            decoration: BoxDecoration(
-                              shape    : BoxShape.circle,
-                              color    : const Color(0xFF43A047),
-                              boxShadow: [
-                                BoxShadow(
-                                  color     : const Color(0xFF43A047)
-                                      .withOpacity(0.35),
-                                  blurRadius: 18,
-                                  offset    : const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.call,
-                              color: Colors.white,
-                              size : 30,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Accept',
-                          style: TextStyle(
-                            color     : Colors.white,
-                            fontSize  : 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                    // Decline
+                    _CallButton(
+                      color  : Colors.red,
+                      icon   : Icons.call_end,
+                      label  : 'Decline',
+                      onTap  : _decline,
                     ),
-
-                    // ✅ Decline
-                    Column(
-                      children: [
-                        GestureDetector(
-                          onTap: () => _stopAndPop('audio_reject'),
-                          child: Container(
-                            width : 70,
-                            height: 70,
-                            decoration: BoxDecoration(
-                              shape    : BoxShape.circle,
-                              color    : const Color(0xFFE53935),
-                              boxShadow: [
-                                BoxShadow(
-                                  color     : const Color(0xFFE53935)
-                                      .withOpacity(0.35),
-                                  blurRadius: 18,
-                                  offset    : const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.call_end,
-                              color: Colors.white,
-                              size : 30,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Decline',
-                          style: TextStyle(
-                            color     : Colors.white,
-                            fontSize  : 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                    // Accept
+                    _CallButton(
+                      color  : Colors.green,
+                      icon   : Icons.call,
+                      label  : 'Accept',
+                      onTap  : _accept,
                     ),
                   ],
                 ),
               ),
-
-              const SizedBox(height: 40),
             ],
           ),
         ),
@@ -298,26 +172,45 @@ void _stopAndPop(String result) {
     );
   }
 
-  Widget _avatarFallback() => Container(
-        color: const Color(0xFF1A3C7A),
-        child: const Icon(Icons.person, size: 70, color: Colors.white54),
-      );
-
-  Widget _circleIconBtn({
-    required IconData  icon,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width : 40,
-        height: 40,
+  Widget _ring(double progress, double maxR) {
+    return Opacity(
+      opacity: (1 - progress).clamp(0.0, 1.0),
+      child  : Container(
+        width     : maxR * 2 * progress + 104,
+        height    : maxR * 2 * progress + 104,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white.withOpacity(0.12),
+          color: Colors.white.withOpacity(0.08),
         ),
-        child: Icon(icon, color: Colors.white, size: 22),
       ),
     );
   }
+}
+
+class _CallButton extends StatelessWidget {
+  final Color    color;
+  final IconData icon;
+  final String   label;
+  final VoidCallback onTap;
+  const _CallButton({
+    required this.color, required this.icon,
+    required this.label, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width : 68, height: 68,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          child: Icon(icon, color: Colors.white, size: 32),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Text(label,
+          style: const TextStyle(color: Colors.white70, fontSize: 13)),
+    ],
+  );
 }

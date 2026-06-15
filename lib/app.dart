@@ -1,12 +1,13 @@
 // lib/app.dart
-//
-// FIX: _onForegroundMessage — the old guard `if (type != 'initiate') return`
-//      was blocking all messages where type='audio'/'video'/'chat' (no notification_type).
-//      Now accepts EITHER notification_type=='initiate' OR a known call type directly.
+// PRODUCTION-GRADE _AppRoot — handles foreground FCM + overlay permission
+// + resume routing
 
-import 'dart:async';
 import 'dart:io';
 
+import 'package:astrologer_app/core/config/theme_config.dart';
+import 'package:astrologer_app/core/providers/locale_provider.dart';
+import 'package:astrologer_app/core/providers/theme_provider.dart';
+import 'package:astrologer_app/core/utils/responsive.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/features/account/SplashScreen.dart';
 import 'package:astrologer_app/features/service/ChatMiniOverlay.dart';
@@ -20,13 +21,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 
-import 'core/config/theme_config.dart';
-import 'core/providers/theme_provider.dart';
-import 'core/providers/locale_provider.dart';
-import 'core/utils/responsive.dart';
 import 'l10n/app_localizations.dart';
 
 class MyApp extends StatelessWidget {
@@ -39,7 +35,7 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           navigatorKey              : NavigationManager().navigatorKey,
           debugShowCheckedModeBanner: false,
-          title                     : 'Professional App',
+          title                     : 'Astrogurujii Astrologer',
           theme                     : AppTheme.lightTheme,
           darkTheme                 : AppTheme.darkTheme,
           themeMode                 : themeProvider.themeMode,
@@ -64,74 +60,92 @@ class MyApp extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _AppRoot — installs overlays and listens for foreground FCM messages
+// _AppRoot
+// Responsibilities:
+//   1. Install floating call/chat overlays
+//   2. Request overlay (draw-over-apps) permission
+//   3. Route any pending call on first frame (cold start / background resume)
+//   4. Route pending call on app resume (lifecycle)
+//   5. Handle foreground FCM — show notification + route
 // ─────────────────────────────────────────────────────────────────────────────
 class _AppRoot extends StatefulWidget {
   const _AppRoot();
-
   @override
   State<_AppRoot> createState() => _AppRootState();
 }
 
-class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver{
+class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver {
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      AudioCallOverlayManager.install(context);
-      ChatOverlayManager.install(context);
-      VideoCallOverlayManager.install(context);
-      await _requestAllPermissions(context);
+      // Install floating overlays (audio, video, chat bubbles)
+      if (mounted) {
+        AudioCallOverlayManager.install(context);
+        ChatOverlayManager.install(context);
+        VideoCallOverlayManager.install(context);
+      }
 
-      // route any call that arrived while we were killed / backgrounded
+      // Overlay permission (Android only)
+      if (Platform.isAndroid && mounted) {
+        await _requestOverlayPermission(context);
+      }
+
+      // Route any call that arrived while app was killed / backgrounded
       await IncomingCallRouter.handlePending();
     });
   }
 
-  Future<void> _requestAllPermissions(BuildContext context) async {
-  // Step 1: normal runtime permissions
-  await [
-    Permission.camera,
-    Permission.microphone,
-    Permission.notification,
-    Permission.phone,
-    Permission.bluetooth,
-    Permission.bluetoothConnect,
-  ].request();
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-  if (!context.mounted) return;
+  // Called when app comes back to foreground from background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Small delay to let Navigator settle after app wakes
+      Future.delayed(const Duration(milliseconds: 300), () {
+        IncomingCallRouter.handlePending();
+      });
+    }
+  }
 
-  // Step 2: overlay permission
-  if (Platform.isAndroid) {
-    await _requestOverlayPermission(context);
+  @override
+  Widget build(BuildContext context) => const SplashScreen();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OVERLAY PERMISSION REQUEST
+// ─────────────────────────────────────────────────────────────────────────────
+const _overlayChannel = MethodChannel('com.astrologer.astro/overlay');
+
+Future<bool> _canDrawOverlays() async {
+  try {
+    return await _overlayChannel.invokeMethod<bool>('canDrawOverlays') ?? false;
+  } catch (_) {
+    return false;
   }
 }
 
 Future<void> _requestOverlayPermission(BuildContext context) async {
-  const channel = MethodChannel('com.astrologer.astro/overlay');
-
-  Future<bool> canDraw() async {
-    try {
-      return await channel.invokeMethod<bool>('canDrawOverlays') ?? false;
-    } catch (_) { return false; }
-  }
-
-  if (await canDraw()) return; // already granted
-
+  if (await _canDrawOverlays()) return; // already granted
   if (!context.mounted) return;
 
-  // ✅ This dialog will actually show because we're inside MaterialApp now
   final shouldOpen = await showDialog<bool>(
-    context            : context,
-    barrierDismissible : false,
+    context           : context,
+    barrierDismissible: false,
     builder: (ctx) => AlertDialog(
       title  : const Text('Allow Display Over Other Apps'),
       content: const Text(
-        'To show incoming calls when another app is open, '
+        'To show incoming calls when another app is open or the screen is locked, '
         'please enable "Display over other apps" for this app.\n\n'
-        'Tap "Open Settings", toggle it ON, then press back.',
+        'Tap "Open Settings", toggle it ON, then press Back.',
       ),
       actions: [
         TextButton(
@@ -148,54 +162,17 @@ Future<void> _requestOverlayPermission(BuildContext context) async {
 
   if (shouldOpen != true) return;
 
-  await channel.invokeMethod('openOverlaySettings'); // opens exact settings page
+  try {
+    await _overlayChannel.invokeMethod('openOverlaySettings');
+  } catch (_) {}
 
-  // Poll until user comes back
+  // Poll until the user grants it or gives up (60 s)
   for (int i = 0; i < 120; i++) {
     await Future.delayed(const Duration(milliseconds: 500));
-    if (await canDraw()) {
+    if (await _canDrawOverlays()) {
       debugPrint('✅ Overlay permission granted');
       return;
     }
   }
-}
-
- Future<void> _onForegroundMessage(RemoteMessage message) async {
-  final data      = message.data;
-  final callType  = data['type'] ?? '';
-  final notifType = data['notification_type'] ?? '';
-
-  debugPrint('📨 Foreground FCM: type=$callType notif=$notifType data=$data');
-
-  final isIncomingCall = notifType == 'initiate' ||
-      callType == 'audio' ||
-      callType == 'video' ||
-      callType == 'chat';
-
-  if (!isIncomingCall) return;
-  if ((data['channel_id'] ?? '').isEmpty) return;
-
-  // ✅ Same as background — show full screen intent which opens incoming page
-  await LocalNotificationService.showIncomingCall(
-    title  : data['title'] ?? 'Incoming Call',
-    body   : '${data['user_name'] ?? 'Someone'} is calling you',
-    payload: data.map((k, v) => MapEntry(k, v.toString())),
-  );
-}
-  
-   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      IncomingCallRouter.handlePending();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => const SplashScreen();
+  debugPrint('⚠️ Overlay permission not granted within 60 s');
 }

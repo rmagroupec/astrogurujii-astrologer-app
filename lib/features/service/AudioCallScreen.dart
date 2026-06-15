@@ -1,16 +1,9 @@
 // lib/features/service/AudioCallScreen.dart
-//
-// Changes:
-// 1. ✅ FIXED end call — removed double-guard, properly calls provider.end()
-// 2. ✅ Added Hold button in bottom bar
-// 3. ✅ Back press → minimizes call instead of popping
-// 4. ✅ Call end shows a bottom sheet with "Write a Review" button (not auto-dialog)
-// 5. ✅ init() passes callerName/callerImage to provider for overlay
+// Mirrors VideoCallScreen pattern exactly for remote disconnect handling
 
-import 'package:astrologer_app/core/widgets/RingingWave.dart';
 import 'package:astrologer_app/features/service/provider/audio_call_provider.dart';
+import 'package:astrologer_app/features/service/service/navigationManager.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 class AudioCallScreen extends StatefulWidget {
@@ -19,31 +12,12 @@ class AudioCallScreen extends StatefulWidget {
   final String callerName;
   final String callerImage;
 
-  final String? patientName;
-  final String? patientId;
-  final String? patientGender;
-  final String? patientDOB;
-  final String? patientPOB;
-  final String? remainingTime;
-  final VoidCallback? onSuggestRemedy;
-  final VoidCallback? onOpenKundli;
-  final VoidCallback? onAddViewNotes;
-
   const AudioCallScreen({
     super.key,
     required this.channelId,
     required this.token,
     this.callerName  = 'User',
     this.callerImage = '',
-    this.patientName,
-    this.patientId,
-    this.patientGender,
-    this.patientDOB,
-    this.patientPOB,
-    this.remainingTime,
-    this.onSuggestRemedy,
-    this.onOpenKundli,
-    this.onAddViewNotes,
   });
 
   @override
@@ -52,12 +26,11 @@ class AudioCallScreen extends StatefulWidget {
 
 class _AudioCallScreenState extends State<AudioCallScreen>
     with SingleTickerProviderStateMixin {
-  bool _started     = false;
-  bool _showInfo    = false;
-  bool _reviewShown = false;   // ✅ guard for review sheet
 
-  late AnimationController _waveController;
-  late Animation<double>   _waveAnimation;
+  bool _initDone = false;
+  bool _endShown = false;
+
+  late AnimationController _waveCtrl;
 
   static const _bgColor = Color(0xFFF5EBD8);
   static const _cardBg  = Color(0xFFEDE3D5);
@@ -66,578 +39,412 @@ class _AudioCallScreenState extends State<AudioCallScreen>
   @override
   void initState() {
     super.initState();
-    _waveController = AnimationController(
+    _waveCtrl = AnimationController(
       vsync   : this,
       duration: const Duration(milliseconds: 1800),
     )..repeat();
-    _waveAnimation = CurvedAnimation(
-      parent: _waveController,
-      curve : Curves.easeOut,
-    );
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_started) return;
-    _started = true;
+    if (_initDone) return;
+    _initDone = true;
 
+    // Mirror VideoCallScreen — pass onEnded callback
     context.read<AudioCallProvider>().init(
-      channelId           : widget.channelId,
-      token               : widget.token,
-      name                : widget.callerName,
-      image               : widget.callerImage,
-      onRemoteDisconnected: _handleRemoteDisconnected,
+      channelId : widget.channelId,
+      token     : widget.token,
+      name      : widget.callerName,
+      image     : widget.callerImage,
+      onEnded   : (reason) {
+        debugPrint('📞 onEnded fired: $reason');
+        _doEnd();
+      },
     );
   }
 
-  // ✅ Called when remote user disconnects — show review sheet
-  void _handleRemoteDisconnected() {
-    if (!mounted || _reviewShown) return;
-    _endCallAndShowReview();
+  @override
+  void dispose() {
+    _waveCtrl.dispose();
+    super.dispose();
   }
 
-  // ✅ FIXED: end call → stop engine → show review bottom sheet
-  Future<void> _endCallAndShowReview() async {
-    if (_reviewShown) return;
-    _reviewShown = true;
-    _waveController.stop();
+  // ── End button ────────────────────────────────────────────────────────────
+  void _onEndPressed() {
+    if (_endShown) return;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape  : RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
+        title  : const Text('End Call',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('Are you sure you want to end this call?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child    : const Text('Cancel',
+                style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              _doEnd();
+            },
+            child: const Text('End',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Core end — mirrors VideoCallScreen._showEndFlow ───────────────────────
+  Future<void> _doEnd() async {
+    if (_endShown) return;
+    _endShown = true;
+
+    if (_waveCtrl.isAnimating) _waveCtrl.stop();
 
     final provider = context.read<AudioCallProvider>();
-    await provider.end();           // ✅ Always call end() — provider guards double-end internally
+    await provider.end();
 
     if (!mounted) return;
-    _showReviewSheet();
+
+    // Small delay so engine teardown settles — same as VideoCallScreen
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+
+    _showRatingSheet();
   }
 
-  void _showReviewSheet() {
+  // ── Rating sheet ─────────────────────────────────────────────────────────
+  void _showRatingSheet() {
     showModalBottomSheet(
-      context            : context,
-      isDismissible      : false,
-      enableDrag         : false,
-      isScrollControlled : true,
-      backgroundColor    : Colors.transparent,
-      builder            : (_) => _ReviewSheet(
+      context           : context,
+      isDismissible     : false,
+      enableDrag        : false,
+      isScrollControlled: true,
+      useRootNavigator  : false,   // keep on same navigator as call screen
+      backgroundColor   : Colors.transparent,
+      builder           : (_) => _RatingSheet(
         callerName : widget.callerName,
         callerImage: widget.callerImage,
-        onDone     : (rating) {
-          Navigator.of(context).pop(); // close sheet
-          Navigator.of(context).pop(); // close call screen
+        onDone: (_) {
+          // Defer navigation to AFTER the current gesture/frame completes.
+          // popUntil inside an onTap causes _debugLocked because the navigator
+          // is locked during gesture dispatch. addPostFrameCallback guarantees
+          // we're outside the gesture recognizer before touching the navigator.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NavigationManager().navigatorKey.currentState?.popUntil(
+              (route) => route.isFirst,
+            );
+          });
         },
       ),
     );
   }
 
-  @override
-  void dispose() {
-    _waveController.dispose();
-    super.dispose();
-  }
-
+  // ══════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     final provider    = context.watch<AudioCallProvider>();
     final isConnected = provider.remoteJoined;
 
-    if (isConnected && _waveController.isAnimating) {
-      _waveController.stop();
-    } else if (!isConnected && !_reviewShown && !_waveController.isAnimating) {
-      _waveController.repeat();
+    // Mirror VideoCallScreen — watch isEnded in build() as a safety net
+    // In case onEnded callback fires while widget is between frames
+    if (provider.isEnded && !_endShown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _doEnd());
     }
 
-    // ✅ Back press → minimize (not pop)
-    return WillPopScope(
-      onWillPop: () async {
+    if (isConnected && _waveCtrl.isAnimating) {
+      _waveCtrl.stop();
+    } else if (!isConnected && !_endShown && !_waveCtrl.isAnimating) {
+      _waveCtrl.repeat();
+    }
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (_) {
         provider.minimize();
-        Navigator.of(context).pop(); // pop the screen but call continues
-        return false;
+        Navigator.of(context).pop();
       },
       child: Scaffold(
         backgroundColor: _bgColor,
         body: SafeArea(
-          child: Stack(
-            children: [
-              Column(
-                children: [
-                  _TopBar(
-                    callerName: widget.callerName,
-                    duration  : isConnected ? provider.duration : '00:00',
-                    onBack    : () {
-                      provider.minimize();
-                      Navigator.of(context).pop();
-                    },
-                    onInfo    : () => setState(() => _showInfo = !_showInfo),
-                    goldColor : _gold,
-                  ),
+          child: Column(children: [
 
-                  const SizedBox(height: 32),
-
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      if (!isConnected)
-                        RingingWave(animation: _waveAnimation),
-                      _AvatarRing(
-                        imageUrl : widget.callerImage,
-                        goldColor: _gold,
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  if (!_showInfo && widget.remainingTime != null)
+            // ── Top bar ───────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 20, vertical: 16),
+              child: Row(children: [
+                CircleAvatar(
+                  radius         : 24,
+                  backgroundColor: _gold.withOpacity(0.2),
+                  backgroundImage: widget.callerImage.isNotEmpty
+                      ? NetworkImage(widget.callerImage) : null,
+                  child: widget.callerImage.isEmpty
+                      ? const Icon(Icons.person, color: _gold, size: 26)
+                      : null,
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.callerName,
+                        style: const TextStyle(
+                            fontSize  : 18,
+                            fontWeight: FontWeight.w700,
+                            color     : Color(0xFF2C2C2C))),
                     Text(
-                      'Remaining time : ${widget.remainingTime}',
-                      style: const TextStyle(
-                        color     : Color(0xFF1A1A1A),
-                        fontSize  : 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      isConnected ? provider.duration : 'Connecting…',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color   : isConnected
+                              ? Colors.green.shade700
+                              : Colors.grey),
                     ),
+                  ],
+                )),
+                IconButton(
+                  onPressed: () {
+                    provider.minimize();
+                    Navigator.of(context).pop();
+                  },
+                  icon: const Icon(Icons.keyboard_arrow_down,
+                      color: Color(0xFF555555), size: 28),
+                ),
+              ]),
+            ),
 
-                  // ✅ Hold indicator banner
-                  if (provider.onHold)
-                    Container(
-                      margin : const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                      decoration: BoxDecoration(
-                        color       : Colors.orange.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
-                        border      : Border.all(color: Colors.orange.withOpacity(0.4)),
-                      ),
-                      child: const Row(
+            // ── Wave / connected ─────────────────────────────────────────
+            Expanded(
+              child: Center(
+                child: isConnected
+                    ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.pause_circle, color: Colors.orange, size: 18),
-                          SizedBox(width: 8),
-                          Text('Call on Hold',
+                          CircleAvatar(
+                            radius         : 64,
+                            backgroundColor: _gold.withOpacity(0.15),
+                            backgroundImage: widget.callerImage.isNotEmpty
+                                ? NetworkImage(widget.callerImage) : null,
+                            child: widget.callerImage.isEmpty
+                                ? const Icon(Icons.person,
+                                    color: _gold, size: 56)
+                                : null,
+                          ),
+                          const SizedBox(height: 20),
+                          Text(widget.callerName,
+                              style: const TextStyle(
+                                  fontSize  : 22,
+                                  fontWeight: FontWeight.w700,
+                                  color     : Color(0xFF2C2C2C))),
+                          const SizedBox(height: 6),
+                          Text(provider.duration,
                               style: TextStyle(
-                                  color     : Colors.orange,
+                                  fontSize  : 16,
+                                  color     : Colors.green.shade700,
                                   fontWeight: FontWeight.w600)),
                         ],
+                      )
+                    : AnimatedBuilder(
+                        animation: _waveCtrl,
+                        builder : (_, __) => _WaveRipple(
+                          progress: _waveCtrl.value,
+                          name    : widget.callerName,
+                          imageUrl: widget.callerImage,
+                        ),
                       ),
-                    ),
-
-                  if (_showInfo) ...[
-                    const SizedBox(height: 16),
-                    _InfoPanel(
-                      remainingTime  : widget.remainingTime  ?? '00:00',
-                      patientName    : widget.patientName    ?? '',
-                      patientId      : widget.patientId      ?? '',
-                      patientGender  : widget.patientGender  ?? '',
-                      patientDOB     : widget.patientDOB     ?? '',
-                      patientPOB     : widget.patientPOB     ?? '',
-                      cardBg         : _cardBg,
-                      onSuggestRemedy: widget.onSuggestRemedy,
-                      onOpenKundli   : widget.onOpenKundli,
-                      onAddViewNotes : widget.onAddViewNotes,
-                    ),
-                  ],
-
-                  const Spacer(),
-                ],
               ),
-
-              // ✅ Bottom bar with Speaker | End | Mute | Hold
-              Positioned(
-                left  : 0,
-                right : 0,
-                bottom: 0,
-                child : _BottomBar(
-                  provider: provider,
-                  onEnd   : _endCallAndShowReview,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TOP BAR
-// ─────────────────────────────────────────────────────────────────────────────
-class _TopBar extends StatelessWidget {
-  final String callerName;
-  final String duration;
-  final VoidCallback onBack;
-  final VoidCallback onInfo;
-  final Color goldColor;
-
-  const _TopBar({
-    required this.callerName,
-    required this.duration,
-    required this.onBack,
-    required this.onInfo,
-    required this.goldColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onBack,
-            child: const Icon(Icons.keyboard_arrow_down,
-                size: 28, color: Color(0xFF1A1A1A)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(callerName,
-                    style: const TextStyle(
-                        color     : Color(0xFF1A1A1A),
-                        fontSize  : 16,
-                        fontWeight: FontWeight.w700)),
-                Text(duration,
-                    style: TextStyle(
-                        color   : goldColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600)),
-              ],
             ),
-          ),
-          GestureDetector(
-            onTap: onInfo,
-            child: Container(
-              padding   : const EdgeInsets.all(8),
+
+            // ── Controls ─────────────────────────────────────────────────
+            Container(
+              margin    : const EdgeInsets.all(20),
+              padding   : const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 20),
               decoration: BoxDecoration(
-                color       : const Color(0xFFEDE3D5),
-                borderRadius: BorderRadius.circular(10),
+                color       : _cardBg,
+                borderRadius: BorderRadius.circular(24),
               ),
-              child: const Icon(Icons.info_outline,
-                  size: 20, color: Color(0xFF1A1A1A)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AVATAR RING
-// ─────────────────────────────────────────────────────────────────────────────
-class _AvatarRing extends StatelessWidget {
-  final String imageUrl;
-  final Color  goldColor;
-  const _AvatarRing({required this.imageUrl, required this.goldColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width : 130,
-      height: 130,
-      decoration: BoxDecoration(
-        shape : BoxShape.circle,
-        border: Border.all(color: goldColor, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color     : goldColor.withOpacity(0.3),
-            blurRadius: 20,
-            spreadRadius: 4,
-          ),
-        ],
-      ),
-      child: ClipOval(
-        child: imageUrl.isNotEmpty
-            ? Image.network(imageUrl,
-                fit         : BoxFit.cover,
-                errorBuilder: (_, __, ___) => _fallback())
-            : _fallback(),
-      ),
-    );
-  }
-
-  Widget _fallback() => Container(
-    color: const Color(0xFFE6A817).withOpacity(0.2),
-    child: const Icon(Icons.person, size: 60, color: Color(0xFFE6A817)),
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BOTTOM BAR  (Speaker | End | Mute | Hold)
-// ─────────────────────────────────────────────────────────────────────────────
-class _BottomBar extends StatelessWidget {
-  final AudioCallProvider provider;
-  final VoidCallback      onEnd;
-  const _BottomBar({required this.provider, required this.onEnd});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color      : Color(0xFFE8DDD0),
-        borderRadius: BorderRadius.only(
-          topLeft : Radius.circular(28),
-          topRight: Radius.circular(28),
-        ),
-      ),
-      padding: const EdgeInsets.only(top: 20, bottom: 28, left: 16, right: 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Row 1: Speaker | End | Mute
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _barBtn(
-                icon  : provider.speakerOn ? Icons.volume_up : Icons.volume_off,
-                label : 'Speaker',
-                active: provider.speakerOn,
-                onTap : provider.toggleSpeaker,
-              ),
-
-              // ✅ End call button — prominent red circle
-              GestureDetector(
-                onTap: onEnd,
-                child: Column(
+              child: Column(children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    Container(
-                      width: 62, height: 62,
-                      decoration: BoxDecoration(
-                        shape    : BoxShape.circle,
-                        color    : const Color(0xFFE53935),
-                        boxShadow: [
-                          BoxShadow(
-                              color    : const Color(0xFFE53935).withOpacity(0.35),
-                              blurRadius: 16,
-                              offset   : const Offset(0, 4)),
-                        ],
-                      ),
-                      child: const Icon(Icons.call_end,
-                          color: Colors.white, size: 28),
+                    _CtrlBtn(
+                      icon  : provider.speakerOn
+                          ? Icons.volume_up : Icons.volume_off,
+                      label : 'Speaker',
+                      active: provider.speakerOn,
+                      onTap : provider.toggleSpeaker,
                     ),
-                    const SizedBox(height: 4),
-                    const Text('End',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color   : Color(0xFF555555))),
+                    _EndBtn(onTap: _onEndPressed),
+                    _CtrlBtn(
+                      icon  : provider.muted
+                          ? Icons.mic_off : Icons.mic,
+                      label : 'Mute',
+                      active: provider.muted,
+                      onTap : provider.toggleMute,
+                    ),
                   ],
                 ),
-              ),
-
-              _barBtn(
-                icon  : provider.muted ? Icons.mic_off : Icons.mic,
-                label : 'Mute',
-                active: provider.muted,
-                onTap : provider.toggleMute,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Row 2: Hold button (centered)
-          // ✅ NEW: Hold button
-          GestureDetector(
-            onTap: provider.toggleHold,
-            child: Container(
-              width  : 56,
-              height : 56,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: provider.onHold
-                    ? Colors.orange.withOpacity(0.25)
-                    : const Color(0xFFCFC4B4),
-                border: provider.onHold
-                    ? Border.all(color: Colors.orange, width: 2)
-                    : null,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    provider.onHold ? Icons.play_arrow : Icons.pause,
-                    color: provider.onHold ? Colors.orange : const Color(0xFF555555),
-                    size : 24,
-                  ),
-                ],
-              ),
+                const SizedBox(height: 16),
+                _CtrlBtn(
+                  icon  : provider.onHold
+                      ? Icons.play_arrow : Icons.pause,
+                  label : provider.onHold ? 'Resume' : 'Hold',
+                  active: provider.onHold,
+                  color : provider.onHold ? Colors.orange : null,
+                  onTap : provider.toggleHold,
+                ),
+              ]),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            provider.onHold ? 'Resume' : 'Hold',
-            style: TextStyle(
-                fontSize: 11,
-                color   : provider.onHold ? Colors.orange : const Color(0xFF555555)),
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _barBtn({
-    required IconData     icon,
-    required String       label,
-    required bool         active,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            width: 52, height: 52,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: active
-                  ? const Color(0xFF1A1A1A).withOpacity(0.15)
-                  : const Color(0xFFCFC4B4),
-            ),
-            child: Icon(icon,
-                color: active
-                    ? const Color(0xFF1A1A1A)
-                    : const Color(0xFF777777),
-                size: 24),
-          ),
-          const SizedBox(height: 4),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 11, color: Color(0xFF555555))),
-        ],
+          ]),
+        ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INFO PANEL
-// ─────────────────────────────────────────────────────────────────────────────
-class _InfoPanel extends StatelessWidget {
-  final String remainingTime;
-  final String patientName;
-  final String patientId;
-  final String patientGender;
-  final String patientDOB;
-  final String patientPOB;
-  final Color  cardBg;
-  final VoidCallback? onSuggestRemedy;
-  final VoidCallback? onOpenKundli;
-  final VoidCallback? onAddViewNotes;
-
-  const _InfoPanel({
-    required this.remainingTime,
-    required this.patientName,
-    required this.patientId,
-    required this.patientGender,
-    required this.patientDOB,
-    required this.patientPOB,
-    required this.cardBg,
-    this.onSuggestRemedy,
-    this.onOpenKundli,
-    this.onAddViewNotes,
-  });
+// =============================================================================
+class _WaveRipple extends StatelessWidget {
+  final double progress;
+  final String name;
+  final String imageUrl;
+  const _WaveRipple({
+      required this.progress,
+      required this.name,
+      required this.imageUrl});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color       : cardBg,
-          borderRadius: BorderRadius.circular(16),
+    return SizedBox(
+      width: 260, height: 260,
+      child: Stack(alignment: Alignment.center, children: [
+        _ring(progress,               130),
+        _ring((progress + 0.33) % 1,  115),
+        _ring((progress + 0.66) % 1,  100),
+        CircleAvatar(
+          radius         : 56,
+          backgroundColor: const Color(0xFFE6A817).withOpacity(0.15),
+          backgroundImage: imageUrl.isNotEmpty
+              ? NetworkImage(imageUrl) : null,
+          child: imageUrl.isEmpty
+              ? const Icon(Icons.person,
+                  color: Color(0xFFE6A817), size: 52)
+              : null,
         ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _row('Name',   patientName),
-            _row('ID',     patientId),
-            _row('Gender', patientGender),
-            _row('DOB',    patientDOB),
-            _row('POB',    patientPOB),
-            _row('Time Left', remainingTime),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (onSuggestRemedy != null)
-                  Expanded(child: _actionBtn('Remedy',  Colors.teal,   onSuggestRemedy!)),
-                if (onOpenKundli != null) ...[
-                  const SizedBox(width: 8),
-                  Expanded(child: _actionBtn('Kundli',  Colors.indigo, onOpenKundli!)),
-                ],
-                if (onAddViewNotes != null) ...[
-                  const SizedBox(width: 8),
-                  Expanded(child: _actionBtn('Notes',   Colors.brown,  onAddViewNotes!)),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
+      ]),
     );
   }
 
-  Widget _row(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(
-      children: [
-        Text('$label: ',
-            style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize  : 13,
-                color     : Color(0xFF555555))),
-        Expanded(
-          child: Text(value,
-              style: const TextStyle(fontSize: 13, color: Color(0xFF1A1A1A))),
-        ),
-      ],
+  Widget _ring(double p, double maxR) => Opacity(
+    opacity: (1 - p).clamp(0.0, 1.0),
+    child  : Container(
+      width : maxR * 2 * p + 112,
+      height: maxR * 2 * p + 112,
+      decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFFE6A817).withOpacity(0.08)),
     ),
   );
-
-  Widget _actionBtn(String label, Color color, VoidCallback onTap) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding   : const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-              color: color, borderRadius: BorderRadius.circular(10)),
-          alignment: Alignment.center,
-          child    : Text(label,
-              style: const TextStyle(
-                  color     : Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize  : 13)),
-        ),
-      );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ✅ NEW: REVIEW BOTTOM SHEET  (replaces old _RatingDialog)
-// ─────────────────────────────────────────────────────────────────────────────
-class _ReviewSheet extends StatefulWidget {
+// =============================================================================
+class _CtrlBtn extends StatelessWidget {
+  final IconData icon;
+  final String   label;
+  final bool     active;
+  final Color?   color;
+  final VoidCallback onTap;
+  const _CtrlBtn({
+      required this.icon, required this.label,
+      required this.onTap, this.active = false, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? (active
+        ? const Color(0xFFE6A817)
+        : const Color(0xFF888888));
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(children: [
+        Container(
+          width : 52, height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: active
+                ? c.withOpacity(0.15)
+                : Colors.white.withOpacity(0.5),
+          ),
+          child: Icon(icon, color: c, size: 24),
+        ),
+        const SizedBox(height: 4),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11, color: Color(0xFF555555))),
+      ]),
+    );
+  }
+}
+
+// =============================================================================
+class _EndBtn extends StatelessWidget {
+  final VoidCallback onTap;
+  const _EndBtn({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Column(children: [
+      Container(
+        width : 64, height: 64,
+        decoration: BoxDecoration(
+          shape    : BoxShape.circle,
+          color    : const Color(0xFFE53935),
+          boxShadow: [BoxShadow(
+            color     : const Color(0xFFE53935).withOpacity(0.4),
+            blurRadius: 16,
+            offset    : const Offset(0, 4))],
+        ),
+        child: const Icon(Icons.call_end, color: Colors.white, size: 30),
+      ),
+      const SizedBox(height: 4),
+      const Text('End',
+          style: TextStyle(fontSize: 11, color: Color(0xFF555555))),
+    ]),
+  );
+}
+
+// =============================================================================
+class _RatingSheet extends StatefulWidget {
   final String callerName;
   final String callerImage;
   final void Function(int rating) onDone;
-
-  const _ReviewSheet({
-    required this.callerName,
-    required this.callerImage,
-    required this.onDone,
-  });
+  const _RatingSheet({
+      required this.callerName,
+      required this.callerImage,
+      required this.onDone});
 
   @override
-  State<_ReviewSheet> createState() => _ReviewSheetState();
+  State<_RatingSheet> createState() => _RatingSheetState();
 }
 
-class _ReviewSheetState extends State<_ReviewSheet> {
+class _RatingSheetState extends State<_RatingSheet> {
   int _rating = 0;
-  final TextEditingController _commentCtrl = TextEditingController();
+  final _ctrl = TextEditingController();
 
   @override
-  void dispose() {
-    _commentCtrl.dispose();
-    super.dispose();
-  }
+  void dispose() { _ctrl.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
@@ -647,140 +454,118 @@ class _ReviewSheetState extends State<_ReviewSheet> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       padding: EdgeInsets.only(
-        top   : 24,
-        left  : 24,
-        right : 24,
+        top   : 24, left: 24, right: 24,
         bottom: MediaQuery.of(context).viewInsets.bottom + 32,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Drag handle
-          Container(
-            width : 40,
-            height: 4,
-            decoration: BoxDecoration(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+
+        Container(
+          width: 40, height: 4,
+          decoration: BoxDecoration(
               color       : Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 20),
+              borderRadius: BorderRadius.circular(2)),
+        ),
+        const SizedBox(height: 20),
 
-          // Call ended badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color       : Colors.red.shade50,
-              borderRadius: BorderRadius.circular(20),
-              border      : Border.all(color: Colors.red.shade200),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.call_end, size: 14, color: Colors.red.shade400),
-                const SizedBox(width: 6),
-                Text('Call Ended',
-                    style: TextStyle(
-                        color     : Colors.red.shade400,
-                        fontWeight: FontWeight.w600,
-                        fontSize  : 12)),
-              ],
-            ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color : Colors.red.shade50,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.red.shade200),
           ),
-          const SizedBox(height: 20),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.call_end, size: 14, color: Colors.red.shade400),
+            const SizedBox(width: 6),
+            Text('Call Ended',
+                style: TextStyle(
+                    color     : Colors.red.shade400,
+                    fontWeight: FontWeight.w600,
+                    fontSize  : 12)),
+          ]),
+        ),
+        const SizedBox(height: 20),
 
-          // Avatar + name
-          CircleAvatar(
-            radius: 40,
-            backgroundColor: const Color(0xFFE6A817).withOpacity(0.15),
-            backgroundImage: widget.callerImage.isNotEmpty
-                ? NetworkImage(widget.callerImage)
-                : null,
-            child: widget.callerImage.isEmpty
-                ? const Icon(Icons.person, size: 40, color: Color(0xFFE6A817))
-                : null,
+        CircleAvatar(
+          radius         : 40,
+          backgroundColor: const Color(0xFFE6A817).withOpacity(0.15),
+          backgroundImage: widget.callerImage.isNotEmpty
+              ? NetworkImage(widget.callerImage) : null,
+          child: widget.callerImage.isEmpty
+              ? const Icon(Icons.person,
+                  color: Color(0xFFE6A817), size: 36)
+              : null,
+        ),
+        const SizedBox(height: 12),
+        Text(widget.callerName,
+            style: const TextStyle(
+                fontSize  : 18,
+                fontWeight: FontWeight.w700,
+                color     : Color(0xFF2C2C2C))),
+        const SizedBox(height: 4),
+        const Text('How was your call?',
+            style: TextStyle(color: Colors.grey, fontSize: 14)),
+        const SizedBox(height: 20),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(5, (i) {
+            final star = i + 1;
+            return GestureDetector(
+              onTap: () => setState(() => _rating = star),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: Icon(
+                  star <= _rating ? Icons.star : Icons.star_border,
+                  color: const Color(0xFFE6A817),
+                  size : 38,
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 16),
+
+        TextField(
+          controller: _ctrl,
+          maxLines  : 3,
+          decoration: InputDecoration(
+            hintText : 'Leave a comment (optional)',
+            hintStyle: const TextStyle(color: Colors.grey),
+            filled   : true,
+            fillColor: const Color(0xFFF5F5F5),
+            border   : OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide  : BorderSide.none,
+            ),
           ),
-          const SizedBox(height: 12),
-          Text(widget.callerName,
-              style: const TextStyle(
-                  fontSize  : 18,
-                  fontWeight: FontWeight.bold,
-                  color     : Color(0xFF1A1A1A))),
-          const SizedBox(height: 4),
-          const Text('How was your experience?',
+        ),
+        const SizedBox(height: 20),
+
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => widget.onDone(_rating),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE6A817),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape  : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+            child: const Text('Submit Review',
+                style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        TextButton(
+          onPressed: () => widget.onDone(0),
+          child: const Text('Skip',
               style: TextStyle(color: Colors.grey, fontSize: 14)),
-
-          const SizedBox(height: 20),
-
-          // ✅ Star rating
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (i) {
-              final star = i + 1;
-              return GestureDetector(
-                onTap: () => setState(() => _rating = star),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(
-                    star <= _rating ? Icons.star : Icons.star_border,
-                    color: const Color(0xFFE6A817),
-                    size : 36,
-                  ),
-                ),
-              );
-            }),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Comment field
-          TextField(
-            controller : _commentCtrl,
-            maxLines   : 3,
-            decoration : InputDecoration(
-              hintText    : 'Leave a comment (optional)',
-              hintStyle   : const TextStyle(color: Colors.grey),
-              filled      : true,
-              fillColor   : const Color(0xFFF5F5F5),
-              border      : OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide  : BorderSide.none,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // ✅ Write a Review / Submit button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => widget.onDone(_rating),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE6A817),
-                foregroundColor: Colors.white,
-                padding        : const EdgeInsets.symmetric(vertical: 16),
-                shape          : RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: const Text('Submit Review',
-                  style: TextStyle(
-                      fontSize  : 16,
-                      fontWeight: FontWeight.bold)),
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          // Skip option
-          TextButton(
-            onPressed: () => widget.onDone(0),
-            child: const Text('Skip',
-                style: TextStyle(color: Colors.grey, fontSize: 14)),
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 }

@@ -1,11 +1,14 @@
+// lib/model/astrologerProfileModel.dart
+// TrainingVideo is NOT defined here — it lives in
+// lib/features/Settings/TrainingVideos.dart to avoid the duplicate-class compile error.
 import 'dart:convert';
 
 AstrologerProfileResponse astrologerProfileResponseFromJson(String str) =>
     AstrologerProfileResponse.fromJson(json.decode(str));
 
 class AstrologerProfileResponse {
-  final bool status;
-  final String message;
+  final bool             status;
+  final String           message;
   final List<Astrologer> results;
 
   AstrologerProfileResponse({
@@ -14,21 +17,20 @@ class AstrologerProfileResponse {
     required this.results,
   });
 
-  factory AstrologerProfileResponse.fromJson(Map<String, dynamic> json) {
-    return AstrologerProfileResponse(
-      status: json['status'] ?? false,
-      message: json['message'] ?? '',
-      results: (json['results'] as List<dynamic>? ?? [])
-          .map((e) => Astrologer.fromJson(e))
-          .toList(),
-    );
-  }
+  factory AstrologerProfileResponse.fromJson(Map<String, dynamic> json) =>
+      AstrologerProfileResponse(
+        status : json['status']  ?? false,
+        message: json['message'] ?? '',
+        results: (json['results'] as List<dynamic>? ?? [])
+            .map((e) => Astrologer.fromJson(e))
+            .toList(),
+      );
 }
+
 bool toBool(dynamic value) {
   if (value == null) return false;
   return value.toString().toLowerCase() == 'on';
 }
-
 
 class Astrologer {
   final String id;
@@ -37,26 +39,47 @@ class Astrologer {
   final String number;
   final String bio;
   final String about;
-  final int experience;
+  final int    experience;
   final String address;
   final String dob;
   final String gender;
   final String profileImg;
 
-
+  // ── Service-enabled flags (permanent) ─────────────────────────────────────
   final bool isChatEnabled;
   final bool isVoiceCallEnabled;
   final bool isVideoCallEnabled;
+
+  // ── Real-time online status (what the Home toggle controls) ───────────────
+  final bool isChatOnline;
+  final bool isVoiceOnline;
+  final bool isVideoOnline;
+
+  // ── Rates ─────────────────────────────────────────────────────────────────
   final int perMinChat;
   final int perMinVoiceCall;
   final int perMinVideoCall;
   final int perQuestionPrice;
 
-  final List<Skill> skill;
+  // ── Schedule next online ──────────────────────────────────────────────────
+  final String nextOnlineChat;
+  final String nextOnlineCall;
+  final String nextOnlineVideo;
+
+  // ── Emergency ─────────────────────────────────────────────────────────────
+  final bool isEmergencyChat;
+  final bool isEmergencyCall;
+
+  // ── Auto boost ────────────────────────────────────────────────────────────
+  final bool autoBoostChat;
+  final bool autoBoostCall;
+
+  // ── Sub-objects ───────────────────────────────────────────────────────────
+  final List<Skill>    skill;
   final List<Language> language;
   final List<Category> category;
-  final List<Gallery> galary;
-  final List<Rating> rating;
+  final List<Gallery>  galary;
+  final List<Rating>   rating;
 
   Astrologer({
     required this.id,
@@ -73,10 +96,20 @@ class Astrologer {
     required this.isChatEnabled,
     required this.isVoiceCallEnabled,
     required this.isVideoCallEnabled,
+    required this.isChatOnline,
+    required this.isVoiceOnline,
+    required this.isVideoOnline,
     required this.perMinChat,
     required this.perMinVoiceCall,
     required this.perMinVideoCall,
     required this.perQuestionPrice,
+    required this.nextOnlineChat,
+    required this.nextOnlineCall,
+    required this.nextOnlineVideo,
+    required this.isEmergencyChat,
+    required this.isEmergencyCall,
+    required this.autoBoostChat,
+    required this.autoBoostCall,
     required this.skill,
     required this.language,
     required this.category,
@@ -84,118 +117,84 @@ class Astrologer {
     required this.rating,
   });
 
-  factory Astrologer.fromJson(Map<String, dynamic> json) {
-    return Astrologer(
-      id: json["id"] ?? "",
-      displayname: json["displayname"] ?? "",
-      email: json["email"] ?? "",
-      number: json["number"] ?? "",
-      bio: json["bio"] ?? "",
-      about: json["about"] ?? "",
-      experience: json["experience"] ?? 0,
-      address: json["address"] ?? "",
-      dob: json["dob"] ?? "",
-      gender: json["gender"] ?? "",
-      profileImg: json["profile_img"] ?? "",
-isChatEnabled: toBool(json['is_chat']),
-      isVoiceCallEnabled: toBool(json['is_voice_call']),
-      isVideoCallEnabled: toBool(json['is_video_call']),
-      perMinChat: json["per_min_chat"] ?? 0,
-      perMinVoiceCall: json["per_min_voice_call"] ?? 0,
-      perMinVideoCall: json["per_min_video_call"] ?? 0,
-      perQuestionPrice: json["per_question_price"] ?? 0,
+  factory Astrologer.fromJson(Map<String, dynamic> json) => Astrologer(
+    id             : json['id']           ?? '',
+    displayname    : json['displayname']  ?? '',
+    email          : json['email']        ?? '',
+    number         : json['number']       ?? '',
+    bio            : json['bio']          ?? '',
+    about          : json['about']        ?? '',
+    experience     : _toInt(json['experience']),
+    address        : json['address']      ?? '',
+    dob            : json['dob']          ?? '',
+    gender         : json['gender']       ?? '',
+    profileImg     : json['profile_img']  ?? '',
 
-      skill: json["skill"] == null
-          ? []
-          : List<Skill>.from(
-              json["skill"].map((x) => Skill.fromJson(x))),
+    isChatEnabled      : toBool(json['is_chat']),
+    isVoiceCallEnabled : toBool(json['is_voice_call']),
+    isVideoCallEnabled : toBool(json['is_video_call']),
 
-      language: json["language"] == null
-          ? []
-          : List<Language>.from(
-              json["language"].map((x) => Language.fromJson(x))),
+    isChatOnline  : toBool(json['is_chat_online']),
+    isVoiceOnline : toBool(json['is_voice_online']),
+    isVideoOnline : toBool(json['is_video_online']),
 
-      category: json["category"] == null
-          ? []
-          : List<Category>.from(
-              json["category"].map((x) => Category.fromJson(x))),
+    perMinChat        : _toInt(json['per_min_chat']),
+    perMinVoiceCall   : _toInt(json['per_min_voice_call']),
+    perMinVideoCall   : _toInt(json['per_min_video_call']),
+    perQuestionPrice  : _toInt(json['per_question_price']),
 
-      galary: json["galary"] == null
-          ? []
-          : List<Gallery>.from(
-              json["galary"].map((x) => Gallery.fromJson(x))),
+    nextOnlineChat  : json['next_online_chat']  ?? '',
+    nextOnlineCall  : json['next_online_call']  ?? '',
+    nextOnlineVideo : json['next_online_video'] ?? '',
 
-      rating: json["rating"] == null
-          ? []
-          : List<Rating>.from(
-              json["rating"].map((x) => Rating.fromJson(x))),
-    );
-  }
+    isEmergencyChat : toBool(json['is_emergency_chat']),
+    isEmergencyCall : toBool(json['is_emergency_call']),
+
+    autoBoostChat   : toBool(json['auto_boost_chat']),
+    autoBoostCall   : toBool(json['auto_boost_call']),
+
+    skill    : (json['skill']    as List<dynamic>? ?? []).map((e) => Skill.fromJson(e)).toList(),
+    language : (json['language'] as List<dynamic>? ?? []).map((e) => Language.fromJson(e)).toList(),
+    category : (json['category'] as List<dynamic>? ?? []).map((e) => Category.fromJson(e)).toList(),
+    galary   : (json['galary']   as List<dynamic>? ?? []).map((e) => Gallery.fromJson(e)).toList(),
+    rating   : (json['rating']   as List<dynamic>? ?? []).map((e) => Rating.fromJson(e)).toList(),
+  );
+
+  static int _toInt(dynamic v) => int.tryParse(v?.toString() ?? '0') ?? 0;
 }
 
+// ── Sub-models ────────────────────────────────────────────────────────────────
 class Skill {
-  final String id;
-  final String name;
-
+  final String id, name;
   Skill({required this.id, required this.name});
-
-  factory Skill.fromJson(Map<String, dynamic> json) {
-    return Skill(
-      id: json["_id"] ?? "",
-      name: json["name"] ?? "",
-    );
-  }
+  factory Skill.fromJson(Map<String, dynamic> j) =>
+      Skill(id: j['_id'] ?? '', name: j['name'] ?? '');
 }
 
 class Language {
-  final String id;
-  final String name;
-
+  final String id, name;
   Language({required this.id, required this.name});
-
-  factory Language.fromJson(Map<String, dynamic> json) {
-    return Language(
-      id: json["_id"] ?? "",
-      name: json["name"] ?? "",
-    );
-  }
+  factory Language.fromJson(Map<String, dynamic> j) =>
+      Language(id: j['_id'] ?? '', name: j['name'] ?? '');
 }
 
 class Category {
-  final String id;
-  final String name;
-
+  final String id, name;
   Category({required this.id, required this.name});
-
-  factory Category.fromJson(Map<String, dynamic> json) {
-    return Category(
-      id: json["_id"] ?? "",
-      name: json["name"] ?? "",
-    );
-  }
+  factory Category.fromJson(Map<String, dynamic> j) =>
+      Category(id: j['_id'] ?? '', name: j['name'] ?? '');
 }
 
 class Gallery {
-  final String id;
-  final String file;
-
+  final String id, file;
   Gallery({required this.id, required this.file});
-
-  factory Gallery.fromJson(Map<String, dynamic> json) {
-    return Gallery(
-      id: json["_id"] ?? "",
-      file: json["file"] ?? "",
-    );
-  }
+  factory Gallery.fromJson(Map<String, dynamic> j) =>
+      Gallery(id: j['_id'] ?? '', file: j['file'] ?? '');
 }
 
 class Rating {
-  final String id;
-  final String profileImg;
-  final int rating;
-  final String review;
-  final String createdDate;
-
+  final String id, profileImg, review, createdDate;
+  final int    rating;
   Rating({
     required this.id,
     required this.profileImg,
@@ -203,14 +202,11 @@ class Rating {
     required this.review,
     required this.createdDate,
   });
-
-  factory Rating.fromJson(Map<String, dynamic> json) {
-    return Rating(
-      id: json["id"] ?? "",
-      profileImg: json["profile_img"] ?? "",
-      rating: json["rating"] ?? 0,
-      review: json["review"] ?? "",
-      createdDate: json["Created_date"] ?? "",
-    );
-  }
+  factory Rating.fromJson(Map<String, dynamic> j) => Rating(
+    id          : j['id']           ?? '',
+    profileImg  : j['profile_img']  ?? '',
+    rating      : int.tryParse(j['rating']?.toString() ?? '0') ?? 0,
+    review      : j['review']       ?? '',
+    createdDate : j['Created_date'] ?? '',
+  );
 }

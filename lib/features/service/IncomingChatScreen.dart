@@ -1,3 +1,7 @@
+// lib/features/service/IncomingChatScreen.dart
+// PRODUCTION-GRADE — chat request with ringtone
+
+import 'package:astrologer_app/service/incoming_call_router.dart';
 import 'package:astrologer_app/service/localNotificationService.dart';
 import 'package:flutter/material.dart';
 
@@ -19,240 +23,158 @@ class IncomingChatRequestScreen extends StatefulWidget {
 }
 
 class _IncomingChatRequestScreenState
-    extends State<IncomingChatRequestScreen> with TickerProviderStateMixin {
-  bool _isHandled = false;
+    extends State<IncomingChatRequestScreen>
+    with TickerProviderStateMixin {
 
-  late AnimationController _rippleController;
-  late Animation<double> _ring1;
-  late Animation<double> _ring2;
-  late Animation<double> _ring3;
+  late AnimationController _pulseController;
+  late Animation<double>   _pulse;
+  bool _handled = false;
 
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync   : this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
 
-    _rippleController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
+    _pulse = Tween<double>(begin: 0.95, end: 1.05).animate(
+        CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
 
-    _ring1 = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _rippleController,
-        curve: const Interval(0.0, 0.8, curve: Curves.easeOut),
-      ),
-    );
-    _ring2 = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _rippleController,
-        curve: const Interval(0.2, 1.0, curve: Curves.easeOut),
-      ),
-    );
-    _ring3 = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _rippleController,
-        curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-      ),
-    );
     LocalNotificationService.playRingtone();
   }
 
-bool _ringStopped = false;
-
-void _stopRingOnce() {
-  if (_ringStopped) return;
-  _ringStopped = true;
-  LocalNotificationService.stopRingtone();
-}
   @override
   void dispose() {
-     _stopRingOnce();
-    _rippleController.dispose();
+    _pulseController.dispose();
+    LocalNotificationService.stopRingtone();
     super.dispose();
   }
 
+  void _accept() {
+    if (_handled) return;
+    _handled = true;
+    LocalNotificationService.stopRingtone();
+    // Clear persisted call data immediately so a restart won't re-ring
+    IncomingCallRouter.clear();
+    Navigator.of(context).pop('accept');
+  }
 
- void _handleAccept() {
-  if (_isHandled) return;
-  setState(() => _isHandled = true);
-  _stopRingOnce();              // ✅ ADD THIS
-  Navigator.of(context).pop('accept');
-}
-
- void _handleDecline() {
-  if (_isHandled) return;
-  setState(() => _isHandled = true);
-  _stopRingOnce();              // ✅ ADD THIS
-  Navigator.of(context).pop('decline');
-}
+  void _decline() {
+    if (_handled) return;
+    _handled = true;
+    LocalNotificationService.stopRingtone();
+    IncomingCallRouter.clear();
+    Navigator.of(context).pop('decline');
+  }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      child: Scaffold(
+      child : Scaffold(
         backgroundColor: Colors.black,
         body: Stack(
           fit: StackFit.expand,
           children: [
-            // ── 1. Full-screen blurred background photo ──────────────────
-            Image.network(
-              widget.userAvatar,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(color: Colors.grey.shade800),
-            ),
+            // Background avatar
+            widget.userAvatar.isNotEmpty
+                ? Image.network(widget.userAvatar,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        Container(color: Colors.grey.shade900))
+                : Container(color: Colors.grey.shade900),
 
-            // ── 2. Dark overlay ──────────────────────────────────────────
+            // Dark overlay
             Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0x33000000), // light at top
-                    Color(0x55000000),
-                    Color(0xAA000000),
-                    Color(0xDD000000), // heavy at bottom
+                  begin  : Alignment.topCenter,
+                  end    : Alignment.bottomCenter,
+                  colors : [
+                    Color(0x22000000),
+                    Color(0x66000000),
+                    Color(0xCC000000),
+                    Color(0xEE000000),
                   ],
                   stops: [0.0, 0.3, 0.6, 1.0],
                 ),
               ),
             ),
 
-            // ── 3. Top bar (back + more) ─────────────────────────────────
+            // Content
             SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _TopBarButton(
-                      icon: Icons.chevron_left,
-                      onTap: () => Navigator.of(context).pop('decline'),
-                    ),
-                    _TopBarButton(
-                      icon: Icons.more_horiz,
-                      onTap: () {},
-                    ),
-                  ],
-                ),
-              ),
-            ),
+              child: Column(
+                children: [
+                  const Spacer(),
 
-            // ── 4. Centre: ripple + avatar + name + subtitle ─────────────
-            Positioned(
-              top: 0,
-              bottom: 200, // push centre content upward so buttons sit low
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Ripple rings + gold-bordered avatar
-                    SizedBox(
-                      width: 230,
-                      height: 230,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          AnimatedBuilder(
-                            animation: _rippleController,
-                            builder: (_, __) => Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                _RippleRing(
-                                    progress: _ring1.value, maxRadius: 112),
-                                _RippleRing(
-                                    progress: _ring2.value, maxRadius: 103),
-                                _RippleRing(
-                                    progress: _ring3.value, maxRadius: 94),
-                              ],
-                            ),
-                          ),
-                          // Gold ring
-                          Container(
-                            width: 138,
-                            height: 138,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFFFFCC00),
-                                width: 3.5,
-                              ),
-                            ),
-                            child: ClipOval(
-                              child: Image.network(
-                                widget.userAvatar,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Container(
-                                  color: Colors.grey.shade700,
-                                  child: const Icon(Icons.person,
-                                      color: Colors.white, size: 60),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  // Pulsing avatar
+                  ScaleTransition(
+                    scale: _pulse,
+                    child: CircleAvatar(
+                      radius         : 56,
+                      backgroundColor: const Color(0xFFFCD417),
+                      backgroundImage: widget.userAvatar.isNotEmpty
+                          ? NetworkImage(widget.userAvatar) : null,
+                      child: widget.userAvatar.isEmpty
+                          ? const Icon(Icons.person,
+                              color: Colors.white, size: 52)
+                          : null,
                     ),
+                  ),
 
-                    const SizedBox(height: 20),
-
-                    // Name
-                    Text(
-                      widget.userName,
+                  const SizedBox(height: 20),
+                  Text(widget.userName,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 30,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3,
-                      ),
+                          color     : Colors.white,
+                          fontSize  : 28,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
                     ),
+                    child: Text(
+                      widget.messagePreview,
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('Incoming Chat Request',
+                      style: TextStyle(color: Colors.white38, fontSize: 13)),
 
-                    const SizedBox(height: 8),
+                  const Spacer(),
 
-                    // Subtitle
-                    Text(
-                      'Incoming Chat Request',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.82),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: 0.3,
-                      ),
+                  // Buttons
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 48, vertical: 48),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _ChatButton(
+                          color  : Colors.red,
+                          icon   : Icons.close,
+                          label  : 'Decline',
+                          onTap  : _decline,
+                        ),
+                        _ChatButton(
+                          color  : const Color(0xFFFCD417),
+                          icon   : Icons.chat_bubble,
+                          label  : 'Accept',
+                          onTap  : _accept,
+                          iconColor: Colors.black,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-
-            // ── 5. Bottom: Accept / Decline ──────────────────────────────
-            Positioned(
-              bottom: 60,
-              left: 0,
-              right: 0,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 80),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Accept
-                    _CallButton(
-                      color: const Color(0xFF4CAF50),
-                      icon: Icons.call,
-                      label: 'Accept',
-                      onTap: _isHandled ? null : _handleAccept,
-                    ),
-                    // Decline
-                    _CallButton(
-                      color: const Color(0xFFE53935),
-                      icon: Icons.call_end,
-                      label: 'Decline',
-                      onTap: _isHandled ? null : _handleDecline,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -262,110 +184,33 @@ void _stopRingOnce() {
   }
 }
 
-// ── Ripple ring ───────────────────────────────────────────────────────────────
-
-class _RippleRing extends StatelessWidget {
-  final double progress;
-  final double maxRadius;
-
-  const _RippleRing({required this.progress, required this.maxRadius});
-
-  @override
-  Widget build(BuildContext context) {
-    final double size = maxRadius * 2 * progress;
-    final double opacity = (1.0 - progress).clamp(0.0, 1.0) * 0.35;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white.withOpacity(opacity),
-          width: 1.5,
-        ),
-      ),
-    );
-  }
-}
-
-// ── Top bar circular button ───────────────────────────────────────────────────
-
-class _TopBarButton extends StatelessWidget {
-  final IconData icon;
+class _ChatButton extends StatelessWidget {
+  final Color      color;
+  final IconData   icon;
+  final String     label;
   final VoidCallback onTap;
+  final Color      iconColor;
 
-  const _TopBarButton({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withOpacity(0.22),
-        ),
-        child: Icon(icon, color: Colors.white, size: 26),
-      ),
-    );
-  }
-}
-
-// ── Accept / Decline button ───────────────────────────────────────────────────
-
-class _CallButton extends StatelessWidget {
-  final Color color;
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  const _CallButton({
+  const _ChatButton({
     required this.color,
     required this.icon,
     required this.label,
     required this.onTap,
+    this.iconColor = Colors.white,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final bool active = onTap != null;
-    return GestureDetector(
+  Widget build(BuildContext context) => Column(children: [
+    GestureDetector(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 70,
-            height: 70,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: active ? color : color.withOpacity(0.4),
-              boxShadow: active
-                  ? [
-                      BoxShadow(
-                        color: color.withOpacity(0.55),
-                        blurRadius: 24,
-                        spreadRadius: 3,
-                      ),
-                    ]
-                  : [],
-            ),
-            child: Icon(icon, color: Colors.white, size: 30),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
+      child: Container(
+        width : 68, height: 68,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: Icon(icon, color: iconColor, size: 30),
       ),
-    );
-  }
+    ),
+    const SizedBox(height: 8),
+    Text(label,
+        style: const TextStyle(color: Colors.white70, fontSize: 13)),
+  ]);
 }

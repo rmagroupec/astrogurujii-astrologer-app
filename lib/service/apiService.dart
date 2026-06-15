@@ -16,6 +16,7 @@ import 'package:astrologer_app/model/ratingListModel.dart';
 import 'package:astrologer_app/service/notificationService.dart';
 import 'package:http/http.dart' as http;
 import 'package:astrologer_app/service/apiClient.dart';
+import 'package:flutter/foundation.dart';
 
 class ApiService {
   final ApiClient _client = ApiClient();
@@ -92,34 +93,27 @@ class ApiService {
     return AstrologerProfileResponse.fromJson(jsonDecode(response.body));
   }
 
-  Future<bool> updateAvailableStatus({
+   Future<bool> updateAvailableStatus({
     bool? isChat,
     bool? isVoiceCall,
     bool? isVideoCall,
   }) async {
     final body = <String, dynamic>{};
-
-    String toApiValue(bool value) => value ? 'on' : 'off';
-
-    if (isChat != null) {
-      body['is_chat'] = toApiValue(isChat);
-    }
-    if (isVoiceCall != null) {
-      body['is_voice_call'] = toApiValue(isVoiceCall);
-    }
-    if (isVideoCall != null) {
-      body['is_video_call'] = toApiValue(isVideoCall);
-    }
-
+    String v(bool b) => b ? 'on' : 'off';
+ 
+    // ✅ CORRECT field names — these control the live online badge
+    if (isChat      != null) body['is_chat_online']  = v(isChat);
+    if (isVoiceCall != null) body['is_voice_online'] = v(isVoiceCall);
+    if (isVideoCall != null) body['is_video_online'] = v(isVideoCall);
+ 
     final response = await _client.post(
-      "astrologer_api/profile_status_update",
+      'astrologer_api/profile_status_update',
       body,
       isAuthRequired: true,
     );
-    print(response.body);
+    print('updateAvailableStatus → ${response.body}');   // plain print, no import needed
     final data = jsonDecode(response.body);
-    print(data);
-    return data['status'];
+    return data['status'] == true;
   }
 
   Future<AstrologerGalleryResponse> getGalleryList() async {

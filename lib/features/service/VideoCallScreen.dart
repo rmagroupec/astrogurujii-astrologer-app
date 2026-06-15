@@ -269,13 +269,29 @@ class _VideoCallScreenState extends State<VideoCallScreen>
         ),
       );
     }
-    return AgoraVideoView(
-      controller: VideoViewController.remote(
-        rtcEngine : provider.engine!,
-        canvas    : VideoCanvas(uid: provider.remoteUid!),
-        connection: RtcConnection(channelId: widget.channelId),
-      ),
-    );
+   return provider.remoteVideoOn
+    ? AgoraVideoView(
+        controller: VideoViewController.remote(
+          rtcEngine        : provider.engine!,
+          canvas           : VideoCanvas(uid: provider.remoteUid!),
+          connection       : RtcConnection(channelId: widget.channelId),
+          useFlutterTexture: true,  // ✅ fixes white screen
+        ),
+      )
+    : Container(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.videocam_off, color: Colors.white54, size: 40),
+              const SizedBox(height: 8),
+              Text(widget.userName,
+                  style: const TextStyle(color: Colors.white70)),
+            ],
+          ),
+        ),
+      );
   }
 
   Widget _localPipWidget(VideoCallProvider provider) {

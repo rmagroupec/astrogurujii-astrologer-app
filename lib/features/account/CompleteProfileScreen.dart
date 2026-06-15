@@ -1,11 +1,4 @@
-// lib/features/account/CompleteProfileScreen.dart
-//
-// Fully working. Zero UI changes.
-// — All fields editable, pre-filled from astrologerData.
-// — DOB → showDatePicker, TOB → showTimePicker.
-// — Edit icon on "Registered No." row opens OTP-verified phone update flow
-//   (same showOtpSheet pattern used in UpdatePhoneNumber.dart).
-// — Submit calls POST /astrologer_api/profile_update.
+
 
 import 'dart:convert';
 import 'package:astrologer_app/core/utils/size_config.dart';
@@ -24,72 +17,68 @@ class CompleteProfileScreen extends StatefulWidget {
 
 class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   // ── Controllers ────────────────────────────────────────────────────────────
-  late final TextEditingController _dobCtrl;
-  late final TextEditingController _tobCtrl;
-  late final TextEditingController _pobCtrl;
-  late final TextEditingController _faithCtrl;
-  late final TextEditingController _addressCtrl;
-  late final TextEditingController _cityCtrl;
+  final _dobCtrl     = TextEditingController();
+  final _tobCtrl     = TextEditingController();
+  final _pobCtrl     = TextEditingController();
+  final _faithCtrl   = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  final _cityCtrl    = TextEditingController();
+  final _aboutCtrl   = TextEditingController();
+  final _bioCtrl     = TextEditingController();
 
   bool _isSubmitting = false;
+  bool _loadingProfile = true;  // true while fetching fresh data from server
 
-  final _client = ApiClient();
+  // Holds the latest data (fetched fresh, not from widget param)
+  Astrologer? _astro;
 
   @override
   void initState() {
     super.initState();
-    final d = widget.astrologerData;
-    _dobCtrl     = TextEditingController(text: d.dob.isNotEmpty     ? d.dob     : '');
-    _tobCtrl     = TextEditingController();
-    _pobCtrl     = TextEditingController(text: d.address.isNotEmpty  ? d.address : '');
-    _faithCtrl   = TextEditingController();
-    _addressCtrl = TextEditingController(text: d.address.isNotEmpty  ? d.address : '');
-    _cityCtrl    = TextEditingController();
+    // Always fetch fresh from server — never trust stale widget.astrologerData
+    _fetchAndPrefill();
   }
 
   @override
   void dispose() {
-    _dobCtrl.dispose();
-    _tobCtrl.dispose();
-    _pobCtrl.dispose();
-    _faithCtrl.dispose();
-    _addressCtrl.dispose();
-    _cityCtrl.dispose();
+    _dobCtrl.dispose();     _tobCtrl.dispose();
+    _pobCtrl.dispose();     _faithCtrl.dispose();
+    _addressCtrl.dispose(); _cityCtrl.dispose();
+    _aboutCtrl.dispose();   _bioCtrl.dispose();
     super.dispose();
   }
 
-  // ── Date picker ────────────────────────────────────────────────────────────
-  Future<void> _pickDOB() async {
-    DateTime initial = DateTime(1990);
-    if (_dobCtrl.text.isNotEmpty) {
-      try { initial = DateTime.parse(_dobCtrl.text); } catch (_) {}
-    }
-    final picked = await showDatePicker(
-      context   : context,
-      initialDate: initial,
-      firstDate  : DateTime(1940),
-      lastDate   : DateTime.now(),
-      builder    : (ctx, child) => _yellowTheme(ctx, child!),
-    );
-    if (picked != null && mounted) {
-      setState(() {
-        _dobCtrl.text = '${picked.year}-${_p2(picked.month)}-${_p2(picked.day)}';
-      });
-    }
-  }
-
-  // ── Time picker ────────────────────────────────────────────────────────────
-  Future<void> _pickTOB() async {
-    final picked = await showTimePicker(
-      context    : context,
-      initialTime: TimeOfDay.now(),
-      builder    : (ctx, child) => _yellowTheme(ctx, child!),
-    );
-    if (picked != null && mounted) {
-      setState(() => _tobCtrl.text = picked.format(context));
+  // ── Fetch fresh profile from server, then fill all controllers ─────────────
+  Future<void> _fetchAndPrefill() async {
+    if (mounted) setState(() => _loadingProfile = true);
+    try {
+      final res = await ApiService().get_astrologer_profile();
+      if (!mounted) return;
+      final a = res.results.isNotEmpty ? res.results[0] : widget.astrologerData;
+      _astro = a;
+      _prefill(a);
+    } catch (_) {
+      // Fall back to passed-in data if network fails
+      if (mounted) {
+        _astro = widget.astrologerData;
+        _prefill(widget.astrologerData);
+      }
+    } finally {
+      if (mounted) setState(() => _loadingProfile = false);
     }
   }
 
+  void _prefill(Astrologer a) {
+    _dobCtrl.text     = a.dob;
+    _pobCtrl.text     = a.address;
+    _addressCtrl.text = a.address;
+    _aboutCtrl.text   = a.about;
+    _bioCtrl.text     = a.bio;
+    // tob, faith, city are new fields — will be empty initially
+    // but after first submit + re-open they'll pre-fill from server
+  }
+
+  // ── Yellow picker theme ────────────────────────────────────────────────────
   Widget _yellowTheme(BuildContext ctx, Widget child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.light(
@@ -102,7 +91,43 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
   String _p2(int n) => n.toString().padLeft(2, '0');
 
-  // ── Phone number edit — OTP flow ───────────────────────────────────────────
+  // ── Date picker ────────────────────────────────────────────────────────────
+  Future<void> _pickDOB() async {
+    DateTime initial = DateTime(1990);
+    if (_dobCtrl.text.isNotEmpty) {
+      try { initial = DateTime.parse(_dobCtrl.text); } catch (_) {}
+    }
+    final picked = await showDatePicker(
+      context    : context,
+      initialDate: initial,
+      firstDate  : DateTime(1940),
+      lastDate   : DateTime.now(),
+      builder    : (ctx, child) => _yellowTheme(ctx, child!),
+    );
+    if (picked != null && mounted) {
+      _dobCtrl.text = '${picked.year}-${_p2(picked.month)}-${_p2(picked.day)}';
+    }
+  }
+
+  // ── Time picker ────────────────────────────────────────────────────────────
+  Future<void> _pickTOB() async {
+    final picked = await showTimePicker(
+      context    : context,
+      initialTime: TimeOfDay.now(),
+      builder    : (ctx, child) => _yellowTheme(ctx, child!),
+    );
+    if (picked != null && mounted) {
+      _tobCtrl.text = picked.format(context);
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PHONE OTP — Step 1: send OTP
+  // Uses ApiService().UpdatePhoneNumberFunc exactly like UpdatePhoneNumber.dart
+  // Server route astrologer_update_number:
+  //   Call 1 → {number}       → saves OTP to DB, returns {result: true}
+  //   Call 2 → {number, otp}  → verifies OTP, updates number, returns {result: true}
+  // ───────────────────────────────────────────────────────────────────────────
   void _editPhoneNumber() {
     final phoneCtrl = TextEditingController();
 
@@ -111,84 +136,100 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
       isScrollControlled: true,
       backgroundColor   : Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (sheetCtx) => StatefulBuilder(
         builder: (sheetCtx, setSheet) {
-          bool sending = false;
+          bool    sending  = false;
+          String? errorMsg;
 
-          Future<void> sendOtp() async {
+          Future<void> _sendOtp() async {
             final number = phoneCtrl.text.trim();
-            if (number.length < 10) return;
-            setSheet(() => sending = true);
+            if (number.length < 10) {
+              setSheet(() => errorMsg = 'Enter a valid 10-digit number');
+              return;
+            }
+            setSheet(() { sending = true; errorMsg = null; });
             try {
-              final res  = await ApiService().UpdatePhoneNumberFunc({'number': number});
-              final json = jsonDecode(res.body);
+              // EXACT same call as UpdatePhoneNumber.dart line 1
+              final res  = await ApiService()
+                  .UpdatePhoneNumberFunc({'number': number});
+              final json = jsonDecode(res.body) as Map<String, dynamic>;
               setSheet(() => sending = false);
+              // Server returns result: true (not status: true)
               if (json['result'] == true) {
                 if (!mounted) return;
                 Navigator.of(sheetCtx).pop();
-                _showOtpSheet(number);
+                _showOtpSheet(number);          // open step 2
               } else {
-                if (!mounted) return;
-                _showSnack(json['message'] ?? 'Failed to send OTP');
+                setSheet(() => errorMsg =
+                    json['message']?.toString() ?? 'Failed to send OTP');
               }
             } catch (e) {
-              setSheet(() => sending = false);
-              if (!mounted) return;
-              _showSnack(e.toString().replaceFirst('Exception: ', ''));
+              setSheet(() {
+                sending  = false;
+                errorMsg = e.toString().replaceFirst('Exception: ', '');
+              });
             }
           }
 
           return Padding(
             padding: EdgeInsets.only(
-              left  : 24, right: 24, top: 24,
-              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 24,
+              left: 24, right: 24, top: 24,
+              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 32,
             ),
             child: Column(
               mainAxisSize      : MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // drag handle
-                Center(
-                  child: Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(
+                Center(child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
                       color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                SizedBox(height: FigmaSize.h(16)),
-                Text(
-                  'Update Phone Number',
-                  style: TextStyle(
-                    fontSize  : FigmaSize.w(16),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                      borderRadius: BorderRadius.circular(2)),
+                )),
+                SizedBox(height: FigmaSize.h(18)),
+                Text('Update Phone Number',
+                    style: TextStyle(
+                        fontSize: FigmaSize.w(16),
+                        fontWeight: FontWeight.w600)),
+                SizedBox(height: FigmaSize.h(6)),
+                Text('Enter your new number. We will send an OTP to verify.',
+                    style: TextStyle(
+                        fontSize: FigmaSize.w(12), color: Colors.grey)),
                 SizedBox(height: FigmaSize.h(16)),
                 TextField(
                   controller  : phoneCtrl,
                   keyboardType: TextInputType.phone,
                   maxLength   : 10,
-                  decoration  : InputDecoration(
-                    hintText    : 'Enter new phone number',
-                    hintStyle   : TextStyle(color: Colors.grey.shade400),
-                    prefixText  : '+91 ',
+                  onChanged   : (_) {
+                    if (errorMsg != null) setSheet(() => errorMsg = null);
+                  },
+                  decoration: InputDecoration(
+                    prefixText  : '+91  ',
+                    hintText    : '10-digit mobile number',
                     counterText : '',
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.grey.shade300)),
-                    focusedBorder: const UnderlineInputBorder(
-                      borderSide: BorderSide(color: Color(0xFFFCD417))),
+                    errorText   : errorMsg,
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide  : BorderSide(color: Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide  : const BorderSide(
+                            color: Color(0xFFFCD417), width: 2)),
+                    errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide  : const BorderSide(color: Colors.red)),
+                    contentPadding: EdgeInsets.symmetric(
+                        horizontal: FigmaSize.w(12),
+                        vertical  : FigmaSize.h(14)),
                   ),
                 ),
                 SizedBox(height: FigmaSize.h(20)),
                 SizedBox(
                   width : double.infinity,
-                  height: FigmaSize.h(48),
+                  height: FigmaSize.h(50),
                   child : ElevatedButton(
-                    onPressed: sending ? null : sendOtp,
+                    onPressed: sending ? null : _sendOtp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFCD417),
                       foregroundColor: Colors.black,
@@ -197,20 +238,16 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                           borderRadius: BorderRadius.circular(8)),
                     ),
                     child: sending
-                        ? const SizedBox(
-                            width: 20, height: 20,
+                        ? const SizedBox(width: 22, height: 22,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.black),
-                          )
-                        : Text(
-                            'Send OTP',
+                                strokeWidth: 2, color: Colors.black))
+                        : Text('Send OTP',
                             style: TextStyle(
-                              fontSize  : FigmaSize.w(16),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                                fontSize  : FigmaSize.w(16),
+                                fontWeight: FontWeight.w600)),
                   ),
                 ),
+                SizedBox(height: FigmaSize.h(8)),
               ],
             ),
           );
@@ -219,7 +256,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     );
   }
 
-  // ── OTP verification sheet ─────────────────────────────────────────────────
+  // ── Step 2: verify OTP ─────────────────────────────────────────────────────
   void _showOtpSheet(String number) {
     final otpCtrl = TextEditingController();
 
@@ -228,93 +265,126 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
       isScrollControlled: true,
       backgroundColor   : Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (sheetCtx) => StatefulBuilder(
         builder: (sheetCtx, setSheet) {
-          bool verifying = false;
+          bool    verifying = false;
+          String? errorMsg;
 
-          Future<void> verify() async {
+          Future<void> _verifyOtp() async {
             final otp = otpCtrl.text.trim();
-            if (otp.isEmpty) return;
-            setSheet(() => verifying = true);
+            if (otp.length < 4) {
+              setSheet(() => errorMsg = 'Enter the OTP sent to +91 $number');
+              return;
+            }
+            setSheet(() { verifying = true; errorMsg = null; });
             try {
+              // EXACT same call as UpdatePhoneNumber.dart line 2
               final res  = await ApiService().UpdatePhoneNumberFunc({
                 'number': number,
                 'otp'   : otp,
               });
-              final json = jsonDecode(res.body);
+              final json = jsonDecode(res.body) as Map<String, dynamic>;
               setSheet(() => verifying = false);
               if (!mounted) return;
+              final ok = json['result'] == true;
               Navigator.of(sheetCtx).pop();
               _showSnack(
-                json['message'] ?? (json['result'] == true ? 'Number updated' : 'Failed'),
-                success: json['result'] == true,
+                json['message']?.toString() ??
+                    (ok ? 'Number updated successfully' : 'Verification failed'),
+                success: ok,
               );
+              // Re-fetch profile so phone number updates in the card
+              if (ok) _fetchAndPrefill();
             } catch (e) {
-              setSheet(() => verifying = false);
-              if (!mounted) return;
-              _showSnack(e.toString().replaceFirst('Exception: ', ''));
+              setSheet(() {
+                verifying = false;
+                errorMsg  = e.toString().replaceFirst('Exception: ', '');
+              });
             }
           }
 
           return Padding(
             padding: EdgeInsets.only(
-              left  : 24, right: 24, top: 24,
-              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 24,
+              left: 24, right: 24, top: 24,
+              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 32,
             ),
             child: Column(
               mainAxisSize      : MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(
-                  child: Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(
+                Center(child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
                       color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                SizedBox(height: FigmaSize.h(16)),
-                Text(
-                  'Enter OTP',
-                  style: TextStyle(
-                    fontSize  : FigmaSize.w(18),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                SizedBox(height: FigmaSize.h(8)),
-                Text(
-                  'OTP sent to +91 $number',
-                  style: TextStyle(
-                    color   : Colors.grey,
-                    fontSize: FigmaSize.w(13),
-                  ),
-                ),
+                      borderRadius: BorderRadius.circular(2)),
+                )),
+                SizedBox(height: FigmaSize.h(18)),
+                Text('Verify OTP',
+                    style: TextStyle(
+                        fontSize: FigmaSize.w(18),
+                        fontWeight: FontWeight.w700)),
+                SizedBox(height: FigmaSize.h(6)),
+                Text('OTP sent to +91 $number',
+                    style: TextStyle(
+                        fontSize: FigmaSize.w(13), color: Colors.grey)),
+                SizedBox(height: FigmaSize.h(4)),
+                Text('(Default OTP is 1234 if SMS not received)',
+                    style: TextStyle(
+                        fontSize: FigmaSize.w(11),
+                        color: Colors.orange.shade700)),
                 SizedBox(height: FigmaSize.h(16)),
                 TextField(
                   controller  : otpCtrl,
                   keyboardType: TextInputType.number,
                   maxLength   : 6,
-                  decoration  : InputDecoration(
-                    hintText    : 'Enter 6-digit OTP',
+                  textAlign   : TextAlign.center,
+                  style: TextStyle(
+                      fontSize     : FigmaSize.w(20),
+                      fontWeight   : FontWeight.w700,
+                      letterSpacing: 10),
+                  onChanged: (_) {
+                    if (errorMsg != null) setSheet(() => errorMsg = null);
+                  },
+                  decoration: InputDecoration(
+                    hintText    : '• • • •',
+                    hintStyle   : TextStyle(
+                        fontSize: FigmaSize.w(20), color: Colors.grey),
                     counterText : '',
-                    border      : OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                    errorText   : errorMsg,
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide  : BorderSide(color: Colors.grey.shade300)),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide  : const BorderSide(color: Color(0xFFFCD417)),
-                    ),
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide  : const BorderSide(
+                            color: Color(0xFFFCD417), width: 2)),
+                    errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide  : const BorderSide(color: Colors.red)),
                   ),
                 ),
-                SizedBox(height: FigmaSize.h(20)),
+                SizedBox(height: FigmaSize.h(6)),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.of(sheetCtx).pop();
+                      _editPhoneNumber();   // re-open step 1 to resend
+                    },
+                    child: Text('Resend OTP',
+                        style: TextStyle(
+                            fontSize  : FigmaSize.w(13),
+                            color     : const Color(0xFFD41000),
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                SizedBox(height: FigmaSize.h(8)),
                 SizedBox(
                   width : double.infinity,
-                  height: FigmaSize.h(48),
+                  height: FigmaSize.h(50),
                   child : ElevatedButton(
-                    onPressed: verifying ? null : verify,
+                    onPressed: verifying ? null : _verifyOtp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFCD417),
                       foregroundColor: Colors.black,
@@ -323,20 +393,16 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                           borderRadius: BorderRadius.circular(8)),
                     ),
                     child: verifying
-                        ? const SizedBox(
-                            width: 20, height: 20,
+                        ? const SizedBox(width: 22, height: 22,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.black),
-                          )
-                        : Text(
-                            'Verify OTP',
+                                strokeWidth: 2, color: Colors.black))
+                        : Text('Verify OTP',
                             style: TextStyle(
-                              fontSize  : FigmaSize.w(16),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                                fontSize  : FigmaSize.w(16),
+                                fontWeight: FontWeight.w600)),
                   ),
                 ),
+                SizedBox(height: FigmaSize.h(8)),
               ],
             ),
           );
@@ -345,46 +411,38 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     );
   }
 
-  // ── Submit profile update ──────────────────────────────────────────────────
+  // ── Submit ─────────────────────────────────────────────────────────────────
   Future<void> _submit() async {
+    final body = <String, dynamic>{};
+    void add(String key, TextEditingController c) {
+      final v = c.text.trim();
+      if (v.isNotEmpty) body[key] = v;
+    }
+    add('about',   _aboutCtrl);
+    add('bio',     _bioCtrl);
+    add('dob',     _dobCtrl);
+    add('tob',     _tobCtrl);
+    add('pob',     _pobCtrl);
+    add('address', _addressCtrl);
+    add('city',    _cityCtrl);
+    add('faith',   _faithCtrl);
+
+    if (body.isEmpty) { _showSnack('Nothing to update'); return; }
+
     setState(() => _isSubmitting = true);
     try {
-      // Build an "about" payload carrying all the extra fields the backend
-      // profile_update doesn't have individual params for yet.
-      final parts = <String>[];
-      if (_pobCtrl.text.trim().isNotEmpty)
-        parts.add('POB: ${_pobCtrl.text.trim()}');
-      if (_faithCtrl.text.trim().isNotEmpty)
-        parts.add('Faith: ${_faithCtrl.text.trim()}');
-      if (_addressCtrl.text.trim().isNotEmpty)
-        parts.add('Address: ${_addressCtrl.text.trim()}');
-      if (_cityCtrl.text.trim().isNotEmpty)
-        parts.add('City: ${_cityCtrl.text.trim()}');
-      if (_dobCtrl.text.trim().isNotEmpty)
-        parts.add('DOB: ${_dobCtrl.text.trim()}');
-      if (_tobCtrl.text.trim().isNotEmpty)
-        parts.add('TOB: ${_tobCtrl.text.trim()}');
-
-      final about = parts.isNotEmpty
-          ? parts.join(' | ')
-          : widget.astrologerData.about;
-
-      final response = await _client.post(
+      final res  = await ApiClient().post(
         'astrologer_api/profile_update',
-        {
-          'about': about,
-          'bio'  : widget.astrologerData.bio,
-        },
+        body,
         isAuthRequired: true,
       );
-
       if (!mounted) return;
-      final json = jsonDecode(response.body);
-      if (response.statusCode == 200 && json['status'] == true) {
+      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200 && json['status'] == true) {
         _showSnack('Profile updated successfully', success: true);
         Navigator.of(context).pop();
       } else {
-        _showSnack(json['message'] ?? 'Update failed');
+        _showSnack(json['message']?.toString() ?? 'Update failed');
       }
     } catch (e) {
       if (!mounted) return;
@@ -397,7 +455,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   void _showSnack(String msg, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content        : Text(msg),
-      backgroundColor: success ? Colors.green : Colors.red,
+      backgroundColor: success ? Colors.green.shade600 : Colors.red.shade600,
       behavior       : SnackBarBehavior.floating,
       margin         : const EdgeInsets.all(16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -407,284 +465,264 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final d = widget.astrologerData;
-
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title          : const Text("Complete your Profile"),
-        backgroundColor: const Color(0xFFFCD417),
-        foregroundColor: Colors.black,
-        elevation      : 0,
-      ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.symmetric(
-          horizontal: FigmaSize.w(16),
-          vertical  : FigmaSize.h(16),
+    // While fetching fresh profile show a loading screen
+    if (_loadingProfile) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          title          : const Text("Complete your Profile"),
+          backgroundColor: const Color(0xFFFCD417),
+          foregroundColor: Colors.black,
+          elevation      : 0,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-
-            /// PROFILE CARD
-            Container(
-              padding   : EdgeInsets.all(FigmaSize.w(12)),
-              decoration: BoxDecoration(
-                border      : Border.all(color: const Color(0xFFFCD417)),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-
-                  /// PROFILE IMAGE
-                  Container(
-                    height    : FigmaSize.h(72),
-                    width     : FigmaSize.w(72),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      image: DecorationImage(
-                        image: NetworkImage(
-                          d.profileImg.isNotEmpty
-                              ? d.profileImg
-                              : "https://i.pravatar.cc/300",
-                        ),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-
-                  SizedBox(width: FigmaSize.w(12)),
-
-                  /// PROFILE DETAILS
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _richLine("Real Name : ",    d.displayname, isBold: true),
-                        SizedBox(height: FigmaSize.h(4)),
-                        _richLine("Display Name : ", d.displayname),
-                        SizedBox(height: FigmaSize.h(4)),
-                        Text(
-                          d.email,
-                          style: TextStyle(
-                            fontSize  : FigmaSize.w(12),
-                            color     : const Color(0xFFD41000),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        SizedBox(height: FigmaSize.h(4)),
-                        // Registered No. — edit icon now opens phone-update flow
-                        _iconLine(
-                          "Registered No. : +91${d.number}",
-                          onEditTap: _editPhoneNumber,
-                        ),
-                        SizedBox(height: FigmaSize.h(4)),
-                        // Primary No. — same edit action
-                        _iconLine(
-                          "Primary No. : +91${d.number}",
-                          onEditTap: _editPhoneNumber,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            SizedBox(height: FigmaSize.h(24)),
-
-            /// BASIC DETAILS
-            Text(
-              "Basic Details",
-              style: TextStyle(
-                fontSize  : FigmaSize.w(14),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-
-            SizedBox(height: FigmaSize.h(12)),
-
-            // DOB
-            _inputField(
-              hint      : d.dob.isNotEmpty ? d.dob : "Please select date of birth",
-              controller: _dobCtrl,
-              onTap     : _pickDOB,
-              suffixIcon: const Icon(Icons.calendar_today,
-                  size: 16, color: Colors.grey),
-            ),
-
-            SizedBox(height: FigmaSize.h(14)),
-            _label("Time of Birth"),
-            _inputField(
-              hint      : "Please select time of birth",
-              controller: _tobCtrl,
-              onTap     : _pickTOB,
-              suffixIcon: const Icon(Icons.access_time,
-                  size: 16, color: Colors.grey),
-            ),
-
-            SizedBox(height: FigmaSize.h(14)),
-            _label("Place of birth"),
-            _inputField(
-              hint      : d.address.isNotEmpty
-                  ? d.address
-                  : "Please select place of birth",
-              controller: _pobCtrl,
-            ),
-
-            SizedBox(height: FigmaSize.h(14)),
-            _label("Faith"),
-            _inputField(
-              hint      : "Select Faith",
-              controller: _faithCtrl,
-            ),
-
-            SizedBox(height: FigmaSize.h(14)),
-            _label("Current Address"),
-            _inputField(
-              hint      : d.address.isNotEmpty ? d.address : "Enter Address",
-              controller: _addressCtrl,
-            ),
-
-            SizedBox(height: FigmaSize.h(14)),
-            _label("City"),
-            _inputField(
-              hint      : "Enter Town / City",
-              controller: _cityCtrl,
-            ),
-
-            SizedBox(height: FigmaSize.h(30)),
-
-            /// SUBMIT BUTTON — UI unchanged
-            GestureDetector(
-              onTap: _isSubmitting ? null : _submit,
-              child: Container(
-                width     : double.infinity,
-                height    : FigmaSize.h(48),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  gradient    : const LinearGradient(
-                    colors: [Color(0xFF2B2B2B), Color(0xFF4A3F36)],
-                  ),
-                ),
-                child: Center(
-                  child: _isSubmitting
-                      ? const SizedBox(
-                          width: 22, height: 22,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text(
-                          "Submit",
-                          style: TextStyle(
-                            color     : Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize  : 16,
-                          ),
-                        ),
-                ),
-              ),
-            ),
-          ],
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFFCD417)),
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  // ── Helpers — UI identical to original ────────────────────────────────────
+    final d = _astro ?? widget.astrologerData;
 
-  Widget _label(String text) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: FigmaSize.h(6)),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize  : FigmaSize.w(12),
-          fontWeight: FontWeight.w600,
-          color     : Colors.black,
-        ),
-      ),
-    );
-  }
-
-  Widget _inputField({
-    required String hint,
-    required TextEditingController controller,
-    VoidCallback? onTap,
-    Widget? suffixIcon,
-  }) {
-    return TextFormField(
-      controller: controller,
-      readOnly  : onTap != null,
-      onTap     : onTap,
-      decoration: InputDecoration(
-        hintText      : controller.text.isEmpty ? hint : null,
-        hintStyle     : TextStyle(fontSize: FigmaSize.w(12), color: Colors.grey),
-        suffixIcon    : suffixIcon,
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: FigmaSize.w(12),
-          vertical  : FigmaSize.h(12),
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide  : BorderSide(color: Colors.grey.shade300),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide  : BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide  : const BorderSide(color: Color(0xFFFCD417)),
-        ),
-      ),
-    );
-  }
-
-  Widget _richLine(String label, String value, {bool isBold = false}) {
-    return RichText(
-      text: TextSpan(
-        style: TextStyle(fontSize: FigmaSize.w(12), color: Colors.black),
-        children: [
-          TextSpan(
-            text : label,
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, color: Colors.black),
-          ),
-          TextSpan(
-            text : value,
-            style: TextStyle(
-                fontWeight: isBold ? FontWeight.w600 : FontWeight.w400),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // _iconLine now accepts an optional onEditTap to make the edit icon tappable
-  Widget _iconLine(String text, {VoidCallback? onEditTap}) {
-    return Row(
+    return Stack(
       children: [
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              fontSize  : FigmaSize.w(12),
-              color     : const Color(0xFFD41000),
-              fontWeight: FontWeight.w500,
+        Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            title          : const Text("Complete your Profile"),
+            backgroundColor: const Color(0xFFFCD417),
+            foregroundColor: Colors.black,
+            elevation      : 0,
+          ),
+          body: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: FigmaSize.w(16),
+              vertical  : FigmaSize.h(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // ── PROFILE CARD ──────────────────────────────────────────
+                Container(
+                  padding   : EdgeInsets.all(FigmaSize.w(12)),
+                  decoration: BoxDecoration(
+                    border      : Border.all(color: const Color(0xFFFCD417)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      // Avatar
+                      Container(
+                        height    : FigmaSize.h(72),
+                        width     : FigmaSize.w(72),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color       : Colors.grey.shade100,
+                          image       : d.profileImg.isNotEmpty
+                              ? DecorationImage(
+                                  image: NetworkImage(d.profileImg),
+                                  fit  : BoxFit.cover)
+                              : null,
+                        ),
+                        child: d.profileImg.isEmpty
+                            ? const Icon(Icons.person,
+                                color: Colors.grey, size: 36)
+                            : null,
+                      ),
+
+                      SizedBox(width: FigmaSize.w(12)),
+
+                      // Details
+                      Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _richLine("Real Name : ",    d.displayname, bold: true),
+                          SizedBox(height: FigmaSize.h(4)),
+                          _richLine("Display Name : ", d.displayname),
+                          SizedBox(height: FigmaSize.h(4)),
+                          Text(d.email,
+                              style: TextStyle(
+                                  fontSize  : FigmaSize.w(12),
+                                  color     : const Color(0xFFD41000),
+                                  fontWeight: FontWeight.w500)),
+                          SizedBox(height: FigmaSize.h(4)),
+                          _iconLine(
+                            "Registered No. : +91 ${d.number}",
+                            onEdit: _editPhoneNumber,
+                          ),
+                          SizedBox(height: FigmaSize.h(4)),
+                          _iconLine(
+                            "Primary No. : +91 ${d.number}",
+                            onEdit: _editPhoneNumber,
+                          ),
+                        ],
+                      )),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: FigmaSize.h(24)),
+
+                // ── FORM ─────────────────────────────────────────────────
+                Text("Basic Details",
+                    style: TextStyle(
+                        fontSize  : FigmaSize.w(14),
+                        fontWeight: FontWeight.w600)),
+                SizedBox(height: FigmaSize.h(12)),
+
+                _label("Date of Birth"),
+                _field(ctrl: _dobCtrl,
+                    hint  : "Select date of birth",
+                    onTap : _pickDOB,
+                    suffix: const Icon(Icons.calendar_today,
+                        size: 16, color: Colors.grey)),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("Time of Birth"),
+                _field(ctrl: _tobCtrl,
+                    hint  : "Select time of birth",
+                    onTap : _pickTOB,
+                    suffix: const Icon(Icons.access_time,
+                        size: 16, color: Colors.grey)),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("Place of Birth"),
+                _field(ctrl: _pobCtrl, hint: "Enter place of birth"),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("Faith"),
+                _field(ctrl: _faithCtrl, hint: "Select Faith"),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("Current Address"),
+                _field(ctrl: _addressCtrl, hint: "Enter address"),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("City"),
+                _field(ctrl: _cityCtrl, hint: "Enter Town / City"),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("About"),
+                _field(ctrl: _aboutCtrl,
+                    hint    : "Write something about yourself",
+                    maxLines: 3),
+
+                SizedBox(height: FigmaSize.h(14)),
+                _label("Bio"),
+                _field(ctrl: _bioCtrl, hint: "Short bio", maxLines: 2),
+
+                SizedBox(height: FigmaSize.h(32)),
+
+                // ── SUBMIT ────────────────────────────────────────────────
+                GestureDetector(
+                  onTap: _isSubmitting ? null : _submit,
+                  child: Container(
+                    width     : double.infinity,
+                    height    : FigmaSize.h(50),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      gradient    : const LinearGradient(
+                          colors: [Color(0xFF2B2B2B), Color(0xFF4A3F36)]),
+                    ),
+                    child: Center(
+                      child: _isSubmitting
+                          ? const SizedBox(width: 22, height: 22,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Text("Submit",
+                              style: TextStyle(
+                                  color     : Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize  : 16)),
+                    ),
+                  ),
+                ),
+                SizedBox(height: FigmaSize.h(32)),
+              ],
             ),
           ),
         ),
-        GestureDetector(
-          onTap    : onEditTap,
-          behavior : HitTestBehavior.opaque,
-          child    : Padding(
-            padding: EdgeInsets.only(left: FigmaSize.w(8)),
-            child  : const Icon(Icons.edit, size: 16, color: Colors.grey),
+
+        // ── Loading overlay ────────────────────────────────────────────────
+        if (_isSubmitting)
+          Container(
+            color: Colors.black.withOpacity(0.3),
+            child: const Center(child: CircularProgressIndicator(
+                color: Color(0xFFFCD417))),
           ),
-        ),
       ],
     );
   }
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+  Widget _label(String text) => Padding(
+    padding: EdgeInsets.only(bottom: FigmaSize.h(6)),
+    child: Text(text,
+        style: TextStyle(
+            fontSize  : FigmaSize.w(12),
+            fontWeight: FontWeight.w600,
+            color     : Colors.black)),
+  );
+
+  Widget _field({
+    required TextEditingController ctrl,
+    required String hint,
+    VoidCallback? onTap,
+    Widget? suffix,
+    int maxLines = 1,
+  }) =>
+      TextFormField(
+        controller: ctrl,
+        readOnly  : onTap != null,
+        onTap     : onTap,
+        maxLines  : maxLines,
+        decoration: InputDecoration(
+          hintText      : hint,
+          hintStyle     : TextStyle(
+              fontSize: FigmaSize.w(12), color: Colors.grey),
+          suffixIcon    : suffix,
+          contentPadding: EdgeInsets.symmetric(
+              horizontal: FigmaSize.w(12), vertical: FigmaSize.h(12)),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide  : BorderSide(color: Colors.grey.shade300)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide  : BorderSide(color: Colors.grey.shade300)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide  : const BorderSide(
+                  color: Color(0xFFFCD417), width: 2)),
+        ),
+      );
+
+  Widget _richLine(String label, String value, {bool bold = false}) =>
+      RichText(text: TextSpan(
+        style: TextStyle(fontSize: FigmaSize.w(12), color: Colors.black),
+        children: [
+          TextSpan(text: label,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, color: Colors.black)),
+          TextSpan(text: value,
+              style: TextStyle(
+                  fontWeight: bold ? FontWeight.w600 : FontWeight.w400)),
+        ],
+      ));
+
+  Widget _iconLine(String text, {VoidCallback? onEdit}) => Row(children: [
+    Expanded(child: Text(text,
+        style: TextStyle(
+            fontSize  : FigmaSize.w(12),
+            color     : const Color(0xFFD41000),
+            fontWeight: FontWeight.w500))),
+    GestureDetector(
+      onTap    : onEdit,
+      behavior : HitTestBehavior.opaque,
+      child    : Padding(
+        padding: EdgeInsets.only(left: FigmaSize.w(8)),
+        child  : const Icon(Icons.edit, size: 16, color: Colors.grey)),
+    ),
+  ]);
 }

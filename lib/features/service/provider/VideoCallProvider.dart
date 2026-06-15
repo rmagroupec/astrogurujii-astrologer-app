@@ -26,6 +26,8 @@ class VideoCallProvider extends ChangeNotifier {
   bool       _isJoined   = false;
   bool       _isDisposed = false;
 
+  bool _remoteVideoOn = true;
+bool get remoteVideoOn => _remoteVideoOn;
   bool _muted       = false;
   bool _speakerOn   = true;
   bool _isVideoOn   = true;
@@ -133,6 +135,12 @@ class VideoCallProvider extends ChangeNotifier {
         _engine?.setEnableSpeakerphone(true);
         _safeNotify();
       },
+     onRemoteVideoStateChanged: (connection, uid, state, reason, elapsed) {
+        debugPrint('📹 [ASTRO VIDEO] Remote video uid=$uid state=$state reason=$reason');
+        _remoteVideoOn = state == RemoteVideoState.remoteVideoStateDecoding ||
+                        state == RemoteVideoState.remoteVideoStateStarting;
+        _safeNotify();
+      },
 
       onUserOffline: (connection, uid, reason) {
         debugPrint('👤 [ASTRO VIDEO] Remote offline uid=$uid reason=$reason');
@@ -148,10 +156,7 @@ class VideoCallProvider extends ChangeNotifier {
         _safeNotify();
       },
 
-      onRemoteVideoStateChanged: (connection, uid, state, reason, elapsed) {
-        debugPrint('📹 [ASTRO VIDEO] Remote video uid=$uid state=$state reason=$reason');
-        _safeNotify();
-      },
+     
 
       onConnectionStateChanged: (connection, state, reason) {
         debugPrint('🔗 [ASTRO VIDEO] Connection state=$state reason=$reason');

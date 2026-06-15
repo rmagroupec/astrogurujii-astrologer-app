@@ -14,14 +14,14 @@ class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "com.astrologer.astro/overlay"
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-            (getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager)
-                .requestDismissKeyguard(this, null)
-        }
+    super.onCreate(savedInstanceState)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
+        (getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager)
+            .requestDismissKeyguard(this, null)
     }
+}
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 

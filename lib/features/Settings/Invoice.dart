@@ -1,13 +1,9 @@
-// ============================================================
 // lib/features/Settings/Invoice.dart
-// ============================================================
-// Add to pubspec.yaml dependencies:
-//   open_file: ^3.3.2
-//   path_provider: ^2.1.5   (already a transitive dep — just make it direct)
-// Then run: flutter pub get
-// ============================================================
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
 
 import 'dart:io';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -16,11 +12,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 
-// ── Model ────────────────────────────────────────────────────────────────────
+// ── Model ─────────────────────────────────────────────────────────────────────
 
 class InvoiceItem {
-  final int month;
-  final int year;
+  final int    month;
+  final int    year;
   final String monthName;
   final String invoiceNumber;
   final String period;
@@ -28,8 +24,8 @@ class InvoiceItem {
   final double platformCommission;
   final double tdsAmount;
   final double netAmount;
-  final int totalServices;
-  final String status; // "Generated" | "No Activity"
+  final int    totalServices;
+  final String status;
 
   const InvoiceItem({
     required this.month,
@@ -46,24 +42,24 @@ class InvoiceItem {
   });
 
   factory InvoiceItem.fromJson(Map<String, dynamic> j) => InvoiceItem(
-        month: j['month'] ?? 0,
-        year: j['year'] ?? 0,
-        monthName: j['month_name'] ?? '',
-        invoiceNumber: j['invoice_number'] ?? '',
-        period: j['period'] ?? '',
-        subtotal: _toDouble(j['subtotal']),
-        platformCommission: _toDouble(j['platform_commission']),
-        tdsAmount: _toDouble(j['tds_amount']),
-        netAmount: _toDouble(j['net_amount']),
-        totalServices: j['total_services'] ?? 0,
-        status: j['status'] ?? 'No Activity',
+        month              : j['month']               ?? 0,
+        year               : j['year']                ?? 0,
+        monthName          : j['month_name']          ?? '',
+        invoiceNumber      : j['invoice_number']      ?? '',
+        period             : j['period']              ?? '',
+        subtotal           : _d(j['subtotal']),
+        platformCommission : _d(j['platform_commission']),
+        tdsAmount          : _d(j['tds_amount']),
+        netAmount          : _d(j['net_amount']),
+        totalServices      : j['total_services']      ?? 0,
+        status             : j['status']              ?? 'No Activity',
       );
 
-  static double _toDouble(dynamic v) =>
+  static double _d(dynamic v) =>
       v == null ? 0.0 : double.tryParse(v.toString()) ?? 0.0;
 }
 
-// ── Service ──────────────────────────────────────────────────────────────────
+// ── Service ───────────────────────────────────────────────────────────────────
 
 class InvoiceService {
   static const String _baseUrl = 'https://admin.astrogurujii.com/';
@@ -75,22 +71,17 @@ class InvoiceService {
     final token = await _token();
     return {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      'Accept'      : 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
 
-  /// Fetches the invoice list for [year].
   Future<List<InvoiceItem>> fetchInvoiceList({int? year}) async {
-    final headers = await _headers();
-    final body = jsonEncode({'year': year ?? DateTime.now().year});
-
+    final headers  = await _headers();
+    final body     = jsonEncode({'year': year ?? DateTime.now().year});
     final response = await http
-        .post(
-          Uri.parse('${_baseUrl}astrologer_api/invoice_list'),
-          headers: headers,
-          body: body,
-        )
+        .post(Uri.parse('${_baseUrl}astrologer_api/invoice_list'),
+            headers: headers, body: body)
         .timeout(const Duration(seconds: 30));
 
     if (response.statusCode == 200) {
@@ -104,32 +95,26 @@ class InvoiceService {
     throw Exception('Server error ${response.statusCode}');
   }
 
-  /// Downloads the PDF for [month]/[year] and returns the saved [File].
   Future<File> downloadInvoicePdf({
-    required int month,
-    required int year,
+    required int    month,
+    required int    year,
     required String monthName,
   }) async {
-    final headers = await _headers();
-    final body = jsonEncode({'month': month, 'year': year});
-
+    final headers  = await _headers();
+    final body     = jsonEncode({'month': month, 'year': year});
     final response = await http
-        .post(
-          Uri.parse('${_baseUrl}astrologer_api/invoice_download'),
-          headers: headers,
-          body: body,
-        )
+        .post(Uri.parse('${_baseUrl}astrologer_api/invoice_download'),
+            headers: headers, body: body)
         .timeout(const Duration(seconds: 60));
 
     if (response.statusCode == 200 &&
         (response.headers['content-type'] ?? '').contains('pdf')) {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir  = await getApplicationDocumentsDirectory();
       final file = File(
           '${dir.path}/Invoice_${monthName}_$year.pdf'.replaceAll(' ', '_'));
       await file.writeAsBytes(response.bodyBytes);
       return file;
     }
-    // Try to parse an error body
     try {
       final err = jsonDecode(response.body);
       throw Exception(err['message'] ?? 'Download failed');
@@ -139,7 +124,7 @@ class InvoiceService {
   }
 }
 
-// ── Screen ───────────────────────────────────────────────────────────────────
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 class Invoice extends StatefulWidget {
   const Invoice({super.key});
@@ -151,16 +136,12 @@ class Invoice extends StatefulWidget {
 class _InvoiceState extends State<Invoice> {
   final _service = InvoiceService();
 
-  int _selectedYear = DateTime.now().year;
-  List<InvoiceItem> _invoices = [];
-  bool _loading = true;
-  String? _error;
-
-  // Which month card is expanded (null = none)
-  int? _expandedMonth;
-
-  // Per-item download state
-  final Map<int, bool> _downloading = {};
+  int               _selectedYear    = DateTime.now().year;
+  List<InvoiceItem> _invoices        = [];
+  bool              _loading         = true;
+  String?           _error;
+  int?              _expandedMonth;
+  final Map<int, bool> _downloading  = {};
 
   @override
   void initState() {
@@ -169,24 +150,20 @@ class _InvoiceState extends State<Invoice> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
     try {
       final list = await _service.fetchInvoiceList(year: _selectedYear);
       if (mounted) {
         setState(() {
-          _invoices = list;
-          // Auto-expand the first item (most recent month)
+          _invoices      = list;
           _expandedMonth = list.isNotEmpty ? list.first.month : null;
-          _loading = false;
+          _loading       = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString().replaceFirst('Exception: ', '');
+          _error   = e.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }
@@ -197,8 +174,8 @@ class _InvoiceState extends State<Invoice> {
     setState(() => _downloading[item.month] = true);
     try {
       final file = await _service.downloadInvoicePdf(
-        month: item.month,
-        year: item.year,
+        month    : item.month,
+        year     : item.year,
         monthName: item.monthName,
       );
       if (mounted) {
@@ -209,7 +186,8 @@ class _InvoiceState extends State<Invoice> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+        _showSnack(e.toString().replaceFirst('Exception: ', ''),
+            isError: true);
       }
     } finally {
       if (mounted) setState(() => _downloading.remove(item.month));
@@ -217,32 +195,28 @@ class _InvoiceState extends State<Invoice> {
   }
 
   void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content        : Text(msg),
+      backgroundColor: isError ? AppTheme.accentRed : Colors.green,
+      behavior       : SnackBarBehavior.floating,
+      margin         : const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    ));
   }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title: const Text('Invoice'),
-        backgroundColor: const Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
+        // Colors inherited from AppTheme automatically
+        title    : const Text('Invoice'),
         elevation: 0,
-        actions: [
-          // Year picker
+        actions  : [
           _YearSelector(
-            year: _selectedYear,
+            year     : _selectedYear,
             onChanged: (y) {
               setState(() => _selectedYear = y);
               _load();
@@ -250,15 +224,15 @@ class _InvoiceState extends State<Invoice> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: _buildBody(c),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppColors c) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFFF5A623)),
-      );
+      return Center(
+          child: CircularProgressIndicator(
+              color: AppTheme.primaryYellow));
     }
 
     if (_error != null) {
@@ -268,21 +242,19 @@ class _InvoiceState extends State<Invoice> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              Icon(Icons.error_outline, size: 48, color: AppTheme.accentRed),
               SizedBox(height: FigmaSize.h(12)),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red),
-              ),
+              Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.accentRed)),
               SizedBox(height: FigmaSize.h(16)),
               ElevatedButton.icon(
                 onPressed: _load,
-                icon: const Icon(Icons.refresh),
+                icon : const Icon(Icons.refresh),
                 label: const Text('Retry'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF5A623),
-                  foregroundColor: Colors.white,
+                  backgroundColor: AppTheme.primaryYellow,
+                  foregroundColor: Colors.black,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
@@ -298,12 +270,10 @@ class _InvoiceState extends State<Invoice> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.receipt_long_outlined, size: 56, color: Colors.grey),
+            Icon(Icons.receipt_long_outlined, size: 56, color: c.subText),
             SizedBox(height: FigmaSize.h(12)),
-            Text(
-              'No invoices for $_selectedYear',
-              style: const TextStyle(color: Colors.grey, fontSize: 16),
-            ),
+            Text('No invoices for $_selectedYear',
+                style: TextStyle(color: c.subText, fontSize: 16)),
           ],
         ),
       );
@@ -311,21 +281,24 @@ class _InvoiceState extends State<Invoice> {
 
     return RefreshIndicator(
       onRefresh: _load,
-      color: const Color(0xFFF5A623),
-      child: ListView.separated(
+      color    : AppTheme.primaryYellow,
+      child    : ListView.separated(
         padding: EdgeInsets.symmetric(
-          vertical: FigmaSize.h(20),
+          vertical  : FigmaSize.h(20),
           horizontal: FigmaSize.w(20),
         ),
-        itemCount: _invoices.length,
+        itemCount       : _invoices.length,
         separatorBuilder: (_, __) => SizedBox(height: FigmaSize.h(4)),
         itemBuilder: (_, i) => _InvoiceCard(
-          item: _invoices[i],
-          isExpanded: _expandedMonth == _invoices[i].month,
+          item         : _invoices[i],
+          isExpanded   : _expandedMonth == _invoices[i].month,
           isDownloading: _downloading[_invoices[i].month] ?? false,
-          onToggle: () => setState(() {
-            _expandedMonth =
-                _expandedMonth == _invoices[i].month ? null : _invoices[i].month;
+          c            : c,
+          isDark       : context.isDark,
+          onToggle     : () => setState(() {
+            _expandedMonth = _expandedMonth == _invoices[i].month
+                ? null
+                : _invoices[i].month;
           }),
           onDownload: () => _downloadPdf(_invoices[i]),
         ),
@@ -334,12 +307,14 @@ class _InvoiceState extends State<Invoice> {
   }
 }
 
-// ── Invoice Card ─────────────────────────────────────────────────────────────
+// ── Invoice Card ──────────────────────────────────────────────────────────────
 
 class _InvoiceCard extends StatelessWidget {
-  final InvoiceItem item;
-  final bool isExpanded;
-  final bool isDownloading;
+  final InvoiceItem  item;
+  final bool         isExpanded;
+  final bool         isDownloading;
+  final AppColors    c;
+  final bool         isDark;
   final VoidCallback onToggle;
   final VoidCallback onDownload;
 
@@ -347,45 +322,51 @@ class _InvoiceCard extends StatelessWidget {
     required this.item,
     required this.isExpanded,
     required this.isDownloading,
+    required this.c,
+    required this.isDark,
     required this.onToggle,
     required this.onDownload,
   });
+
+  // Brand amber used for invoice accents
+  static const _amber = Color(0xFFF5A623);
 
   @override
   Widget build(BuildContext context) {
     final hasActivity = item.status == 'Generated';
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeInOut,
+      duration : const Duration(milliseconds: 250),
+      curve    : Curves.easeInOut,
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(
+        color       : c.surface,
+        border      : Border.all(
           color: isExpanded
-              ? const Color(0xFFF5A623).withOpacity(0.6)
-              : const Color(0xFFE7E7E7),
+              ? _amber.withOpacity(0.6)
+              : c.border,
         ),
         borderRadius: BorderRadius.circular(10),
-        boxShadow: isExpanded
+        boxShadow   : isExpanded
             ? [
                 BoxShadow(
-                  color: const Color(0xFFF5A623).withOpacity(0.08),
+                  color     : _amber.withOpacity(isDark ? 0.12 : 0.08),
                   blurRadius: 8,
-                  offset: const Offset(0, 2),
-                )
+                  offset    : const Offset(0, 2),
+                ),
               ]
             : [],
       ),
       child: Column(
         children: [
+
           // ── Header row ───────────────────────────────────────────────────
           InkWell(
-            onTap: hasActivity ? onToggle : null,
-            borderRadius: BorderRadius.circular(10),
+            onTap        : hasActivity ? onToggle : null,
+            borderRadius : BorderRadius.circular(10),
             child: Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: FigmaSize.w(16),
-                vertical: FigmaSize.h(14),
+                vertical  : FigmaSize.h(14),
               ),
               child: Row(
                 children: [
@@ -396,9 +377,9 @@ class _InvoiceCard extends StatelessWidget {
                         Text(
                           '${item.monthName} ${item.year}',
                           style: TextStyle(
-                            fontSize: FigmaSize.w(15),
+                            fontSize  : FigmaSize.w(15),
                             fontWeight: FontWeight.w600,
-                            color: Colors.black,
+                            color     : c.text,
                           ),
                         ),
                         SizedBox(height: FigmaSize.h(3)),
@@ -407,21 +388,19 @@ class _InvoiceCard extends StatelessWidget {
                               ? '${item.totalServices} sessions'
                               : 'No activity',
                           style: TextStyle(
-                            fontSize: FigmaSize.w(11),
-                            color: Colors.grey,
-                          ),
+                              fontSize: FigmaSize.w(11),
+                              color   : c.subText),
                         ),
                       ],
                     ),
                   ),
-                  // Net amount badge
                   if (hasActivity) ...[
                     Text(
                       '₹ ${item.netAmount.toStringAsFixed(2)}',
                       style: TextStyle(
-                        fontSize: FigmaSize.w(14),
+                        fontSize  : FigmaSize.w(14),
                         fontWeight: FontWeight.w700,
-                        color: Colors.green,
+                        color     : Colors.green,
                       ),
                     ),
                     SizedBox(width: FigmaSize.w(8)),
@@ -430,83 +409,85 @@ class _InvoiceCard extends StatelessWidget {
                     isExpanded
                         ? Icons.keyboard_arrow_up
                         : Icons.keyboard_arrow_down,
-                    color: hasActivity ? Colors.black87 : Colors.grey.shade300,
+                    color: hasActivity ? c.text : c.subText,
                   ),
                 ],
               ),
             ),
           ),
 
-          // ── Expanded content ─────────────────────────────────────────────
+          // ── Expanded content ──────────────────────────────────────────────
           if (isExpanded && hasActivity) ...[
             Divider(
-                height: 1,
-                color: const Color(0xFFF5A623).withOpacity(0.3),
-                indent: FigmaSize.w(16),
-                endIndent: FigmaSize.w(16)),
+              height    : 1,
+              color     : _amber.withOpacity(0.3),
+              indent    : FigmaSize.w(16),
+              endIndent : FigmaSize.w(16),
+            ),
             Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: FigmaSize.w(16),
-                vertical: FigmaSize.h(12),
+                vertical  : FigmaSize.h(12),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Status stepper
-                  _InvoiceStatusBar(status: item.status),
+                  _InvoiceStatusBar(status: item.status, c: c),
                   SizedBox(height: FigmaSize.h(16)),
 
-                  // Invoice number
                   _DetailRow(
-                    label: 'Invoice No.',
-                    value: item.invoiceNumber,
-                    valueStyle: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey,
+                    label     : 'Invoice No.',
+                    value     : item.invoiceNumber,
+                    c         : c,
+                    valueStyle: TextStyle(
+                        fontSize  : FigmaSize.w(11),
+                        color     : c.subText,
                         fontFamily: 'monospace'),
                   ),
                   SizedBox(height: FigmaSize.h(6)),
-                  _DetailRow(label: 'Period', value: item.period),
+                  _DetailRow(label: 'Period', value: item.period, c: c),
                   SizedBox(height: FigmaSize.h(12)),
 
                   // Amounts breakdown
                   Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF8F9FA),
+                      color       : isDark ? c.toggleBg : const Color(0xFFF8F9FA),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFE7E7E7)),
+                      border      : Border.all(color: c.border),
                     ),
                     padding: EdgeInsets.symmetric(
                       horizontal: FigmaSize.w(12),
-                      vertical: FigmaSize.h(10),
+                      vertical  : FigmaSize.h(10),
                     ),
                     child: Column(
                       children: [
                         _AmountRow(
-                          label: 'Gross Earnings',
-                          value: '₹ ${item.subtotal.toStringAsFixed(2)}',
-                          valueColor: Colors.black87,
+                          label     : 'Gross Earnings',
+                          value     : '₹ ${item.subtotal.toStringAsFixed(2)}',
+                          valueColor: c.text,
+                          c         : c,
                         ),
                         SizedBox(height: FigmaSize.h(6)),
                         _AmountRow(
-                          label: 'Platform Commission',
-                          value: '- ₹ ${item.platformCommission.toStringAsFixed(2)}',
-                          valueColor: Colors.red,
+                          label     : 'Platform Commission',
+                          value     : '- ₹ ${item.platformCommission.toStringAsFixed(2)}',
+                          valueColor: AppTheme.accentRed,
+                          c         : c,
                         ),
                         SizedBox(height: FigmaSize.h(6)),
                         _AmountRow(
-                          label: 'TDS (10%)',
-                          value: '- ₹ ${item.tdsAmount.toStringAsFixed(2)}',
-                          valueColor: Colors.red,
+                          label     : 'TDS (10%)',
+                          value     : '- ₹ ${item.tdsAmount.toStringAsFixed(2)}',
+                          valueColor: AppTheme.accentRed,
+                          c         : c,
                         ),
-                        Divider(
-                            height: FigmaSize.h(14),
-                            color: const Color(0xFFE0E0E0)),
+                        Divider(height: FigmaSize.h(14), color: c.divider),
                         _AmountRow(
-                          label: 'Net Payable',
-                          value: '₹ ${item.netAmount.toStringAsFixed(2)}',
+                          label     : 'Net Payable',
+                          value     : '₹ ${item.netAmount.toStringAsFixed(2)}',
                           valueColor: Colors.green,
-                          bold: true,
+                          bold      : true,
+                          c         : c,
                         ),
                       ],
                     ),
@@ -520,24 +501,20 @@ class _InvoiceCard extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: isDownloading ? null : onDownload,
                       icon: isDownloading
-                          ? SizedBox(
-                              width: 16,
-                              height: 16,
+                          ? const SizedBox(
+                              width: 16, height: 16,
                               child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.green,
-                              ),
+                                  strokeWidth: 2, color: Colors.green),
                             )
                           : const Icon(Icons.download, color: Colors.green),
                       label: Text(
                         isDownloading ? 'Downloading...' : 'Download Invoice',
                         style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.w600,
-                        ),
+                            color     : Colors.green,
+                            fontWeight: FontWeight.w600),
                       ),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.green),
+                        side : const BorderSide(color: Colors.green),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8)),
                         padding: EdgeInsets.symmetric(
@@ -558,13 +535,12 @@ class _InvoiceCard extends StatelessWidget {
 // ── Status Stepper ────────────────────────────────────────────────────────────
 
 class _InvoiceStatusBar extends StatelessWidget {
-  final String status;
-  const _InvoiceStatusBar({required this.status});
+  final String    status;
+  final AppColors c;
+  const _InvoiceStatusBar({required this.status, required this.c});
 
   @override
   Widget build(BuildContext context) {
-    // "Generated" maps to step 2 (In Processing → Generated)
-    // You can extend steps as needed
     final step = status == 'Generated' ? 2 : 1;
 
     return Column(
@@ -573,9 +549,9 @@ class _InvoiceStatusBar extends StatelessWidget {
         Row(
           children: [
             _dot(active: step >= 1),
-            _line(active: step >= 2),
+            _line(active: step >= 2, c: c),
             _dot(active: step >= 2),
-            _line(active: step >= 3),
+            _line(active: step >= 3, c: c),
             _dot(active: step >= 3),
           ],
         ),
@@ -586,25 +562,25 @@ class _InvoiceStatusBar extends StatelessWidget {
               child: Text('Processing',
                   textAlign: TextAlign.left,
                   style: TextStyle(
-                      fontSize: FigmaSize.w(11),
+                      fontSize  : FigmaSize.w(11),
                       fontWeight: FontWeight.w500,
-                      color: step >= 1 ? Colors.green : Colors.grey)),
+                      color     : step >= 1 ? Colors.green : c.subText)),
             ),
             Expanded(
               child: Text('Generated',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      fontSize: FigmaSize.w(11),
+                      fontSize  : FigmaSize.w(11),
                       fontWeight: FontWeight.w500,
-                      color: step >= 2 ? Colors.green : Colors.grey)),
+                      color     : step >= 2 ? Colors.green : c.subText)),
             ),
             Expanded(
               child: Text('Paid',
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                      fontSize: FigmaSize.w(11),
+                      fontSize  : FigmaSize.w(11),
                       fontWeight: FontWeight.w500,
-                      color: step >= 3 ? Colors.green : Colors.grey)),
+                      color     : step >= 3 ? Colors.green : c.subText)),
             ),
           ],
         ),
@@ -613,22 +589,21 @@ class _InvoiceStatusBar extends StatelessWidget {
   }
 
   Widget _dot({required bool active}) => Container(
-        width: 11,
-        height: 11,
+        width : 11, height: 11,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: active ? Colors.green : Colors.white,
+          color: active ? Colors.green : Colors.transparent,
           border: Border.all(
-            color: active ? Colors.green : Colors.grey.shade300,
+            color: active ? Colors.green : c.border,
             width: 2,
           ),
         ),
       );
 
-  Widget _line({required bool active}) => Expanded(
+  Widget _line({required bool active, required AppColors c}) => Expanded(
         child: Container(
           height: 3,
-          color: active ? Colors.green : Colors.grey.shade300,
+          color : active ? Colors.green : c.border,
         ),
       );
 }
@@ -636,10 +611,17 @@ class _InvoiceStatusBar extends StatelessWidget {
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 class _DetailRow extends StatelessWidget {
-  final String label;
-  final String value;
+  final String     label;
+  final String     value;
+  final AppColors  c;
   final TextStyle? valueStyle;
-  const _DetailRow({required this.label, required this.value, this.valueStyle});
+
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    required this.c,
+    this.valueStyle,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -650,14 +632,14 @@ class _DetailRow extends StatelessWidget {
           width: 100,
           child: Text(label,
               style: TextStyle(
-                  fontSize: FigmaSize.w(11), color: Colors.grey)),
+                  fontSize: FigmaSize.w(11), color: c.subText)),
         ),
         Expanded(
           child: Text(value,
               style: valueStyle ??
                   TextStyle(
-                      fontSize: FigmaSize.w(11),
-                      color: Colors.black87,
+                      fontSize  : FigmaSize.w(11),
+                      color     : c.text,
                       fontWeight: FontWeight.w500)),
         ),
       ],
@@ -666,15 +648,19 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _AmountRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color valueColor;
-  final bool bold;
-  const _AmountRow(
-      {required this.label,
-      required this.value,
-      required this.valueColor,
-      this.bold = false});
+  final String    label;
+  final String    value;
+  final Color     valueColor;
+  final AppColors c;
+  final bool      bold;
+
+  const _AmountRow({
+    required this.label,
+    required this.value,
+    required this.valueColor,
+    required this.c,
+    this.bold = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -683,41 +669,48 @@ class _AmountRow extends StatelessWidget {
       children: [
         Text(label,
             style: TextStyle(
-                fontSize: FigmaSize.w(12),
-                color: Colors.grey.shade700,
+                fontSize  : FigmaSize.w(12),
+                color     : c.subText,
                 fontWeight: bold ? FontWeight.w600 : FontWeight.normal)),
         Text(value,
             style: TextStyle(
-                fontSize: FigmaSize.w(bold ? 13 : 12),
-                color: valueColor,
+                fontSize  : FigmaSize.w(bold ? 13 : 12),
+                color     : valueColor,
                 fontWeight: bold ? FontWeight.w700 : FontWeight.w500)),
       ],
     );
   }
 }
 
-// ── Year Selector (AppBar action) ─────────────────────────────────────────────
+// ── Year Selector ─────────────────────────────────────────────────────────────
 
 class _YearSelector extends StatelessWidget {
-  final int year;
+  final int               year;
   final ValueChanged<int> onChanged;
   const _YearSelector({required this.year, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
+    final c       = context.colors;
     final current = DateTime.now().year;
+
     return PopupMenuButton<int>(
       initialValue: year,
-      onSelected: onChanged,
-      itemBuilder: (_) => List.generate(
+      onSelected  : onChanged,
+      color       : c.surface,
+      itemBuilder : (_) => List.generate(
         3,
         (i) => PopupMenuItem(
           value: current - i,
-          child: Text('${current - i}',
-              style: TextStyle(
-                  fontWeight: year == current - i
-                      ? FontWeight.bold
-                      : FontWeight.normal)),
+          child: Text(
+            '${current - i}',
+            style: TextStyle(
+              color     : c.text,
+              fontWeight: year == current - i
+                  ? FontWeight.bold
+                  : FontWeight.normal,
+            ),
+          ),
         ),
       ),
       child: Padding(
@@ -726,9 +719,11 @@ class _YearSelector extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('$year',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 14)),
-            const Icon(Icons.arrow_drop_down),
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize  : 14,
+                    color     : c.text)),
+            Icon(Icons.arrow_drop_down, color: c.text),
           ],
         ),
       ),

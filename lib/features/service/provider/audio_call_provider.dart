@@ -1,18 +1,28 @@
 // lib/features/service/provider/audio_call_provider.dart
 //
-// KEY DESIGN CHANGE — mirrors VideoCallProvider exactly:
-// Provider fires _onCallEnded callback (not _onRemoteDisconnected VoidCallback)
-// so the screen can react to it reliably, the same way VideoCallScreen does.
-// The screen listens via provider.watch() and calls _doEnd() when isEnded=true.
+// FIX: "setState() called during build" crash
+//
+// CAUSE:
+//   AudioCallScreen.didChangeDependencies() runs during first build.
+//   It calls provider.expand() → _notify() → notifyListeners()
+//   → overlay's _onProviderChanged() → setState() ← ILLEGAL during build.
+//
+// FIX:
+//   minimize() and expand() defer notifyListeners() via addPostFrameCallback
+//   so they are safe to call from didChangeDependencies / initState / build.
+//   All other _notify() calls (Agora callbacks, timers) are already async-safe.
 
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 typedef OnAudioCallEnded = void Function(String reason);
 
 class AudioCallProvider extends ChangeNotifier {
@@ -29,7 +39,7 @@ class AudioCallProvider extends ChangeNotifier {
   bool _onHold       = false;
   bool _isMinimized  = false;
   bool _isEnded      = false;
-
+Timer?   _deductTimer;
   Timer?   _durationTimer;
   Duration _callDuration = Duration.zero;
 
@@ -37,7 +47,6 @@ class AudioCallProvider extends ChangeNotifier {
   String callerName  = '';
   String callerImage = '';
 
-  // Mirrors VideoCallProvider — callback instead of VoidCallback
   OnAudioCallEnded? _onCallEnded;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -76,7 +85,41 @@ class AudioCallProvider extends ChangeNotifier {
       debugPrint('❌ _updateStatus($status): $e');
     }
   }
+StreamSubscription<DatabaseEvent>? _callSessionSub;
 
+void listenCallSession(String channelId) {
+  _callSessionSub?.cancel();
+  final ref = FirebaseDatabase.instanceFor(
+    app        : Firebase.app(),
+    databaseURL: 'https://astrogurujii-production-default-rtdb.firebaseio.com/',
+  ).ref().child('CallSession').child(channelId);
+
+  _callSessionSub = ref.onValue.listen((event) {
+    final data = event.snapshot.value;
+    if (data == null) return;
+    final map    = Map<String, dynamic>.from(data as Map);
+    final status = (map['status'] ?? '') as String;
+
+    if (['end_user', 'end_astro', 'wallet_empty'].contains(status) && !_isEnded) {
+      // Server ended the call
+      end();
+      _onCallEnded?.call('Call ended');
+    }
+  });
+}
+
+// Call this in initAgora() after joining channel:
+void startDeduction({
+  required String channelId,
+  required Future<void> Function(String) deductApi,
+}) {
+  _deductTimer?.cancel();
+  _deductTimer = Timer.periodic(
+    const Duration(minutes: 1),
+    (_) => deductApi(channelId),
+  );
+  listenCallSession(channelId); // ← add this
+}
   void _startTimer() {
     _durationTimer?.cancel();
     _callDuration = Duration.zero;
@@ -86,8 +129,43 @@ class AudioCallProvider extends ChangeNotifier {
     });
   }
 
+  // ── Safe notify ───────────────────────────────────────────────────────────
+  // For most calls (timers, Agora callbacks) — fires immediately.
   void _notify() {
     if (!_disposed) notifyListeners();
+  }
+
+  // ✅ FIX: For calls that may happen during build (minimize/expand called
+  // from didChangeDependencies or initState), defer to post-frame so we
+  // never call setState() on the overlay while the framework is building.
+  void _notifyDeferred() {
+    if (_disposed) return;
+    // If a frame is already scheduled / we're in the build phase, defer.
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_disposed) notifyListeners();
+      });
+    } else {
+      notifyListeners();
+    }
+  }
+
+  // ── Re-wire callback (for resumed screens) ────────────────────────────────
+  void rewireCallback({required OnAudioCallEnded onEnded}) {
+    _onCallEnded = onEnded;
+    debugPrint('📞 AudioCallProvider: callback re-wired for resumed screen');
+  }
+
+  // ── Minimize / Expand ─────────────────────────────────────────────────────
+  // ✅ Use _notifyDeferred — these are called from didChangeDependencies
+  void minimize() {
+    _isMinimized = true;
+    _notifyDeferred();
+  }
+
+  void expand() {
+    _isMinimized = false;
+    _notifyDeferred();
   }
 
   // ── INIT ──────────────────────────────────────────────────────────────────
@@ -98,9 +176,7 @@ class AudioCallProvider extends ChangeNotifier {
     required String        image,
     OnAudioCallEnded?      onEnded,
   }) async {
-    // Always update callback — even if engine already exists
     if (onEnded != null) _onCallEnded = onEnded;
-
     if (_engine != null) return;
 
     _channelId  = channelId;
@@ -143,20 +219,17 @@ class AudioCallProvider extends ChangeNotifier {
         _notify();
       },
 
-      // Mirrors VideoCallProvider exactly — call _onCallEnded immediately
       onUserOffline: (_, uid, reason) {
         debugPrint('👤 Audio remote offline uid=$uid reason=$reason');
         _remoteJoined = false;
         _durationTimer?.cancel();
         _durationTimer = null;
         _notify();
-        // Fire via microtask so Agora's native thread returns first
-        Future.microtask(() => _onCallEnded?.call('User ended the call'));
+        Future.microtask(() => _onCallEnded?.call('User disconnected'));
       },
 
       onRemoteAudioStateChanged: (_, uid, state, reason, __) {
-        if (state == RemoteAudioState.remoteAudioStateDecoding &&
-            !_remoteJoined) {
+        if (state == RemoteAudioState.remoteAudioStateDecoding && !_remoteJoined) {
           _remoteJoined = true;
           _startTimer();
           _notify();
@@ -227,9 +300,6 @@ class AudioCallProvider extends ChangeNotifier {
     _notify();
   }
 
-  void minimize() { _isMinimized = true;  _notify(); }
-  void expand()   { _isMinimized = false; _notify(); }
-
   // ── END ──────────────────────────────────────────────────────────────────
   Future<void> end() async {
     if (_isEnded) return;
@@ -237,8 +307,9 @@ class AudioCallProvider extends ChangeNotifier {
     _isMinimized = false;
 
     _durationTimer?.cancel();
+    _deductTimer?.cancel(); 
     _durationTimer = null;
-
+ _callSessionSub?.cancel();
     await _updateStatus('end_astro');
 
     if (_engine != null) {
@@ -261,6 +332,7 @@ class AudioCallProvider extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _durationTimer?.cancel();
+    _deductTimer?.cancel(); 
     try { _engine?.release(); } catch (_) {}
     _engine = null;
     super.dispose();

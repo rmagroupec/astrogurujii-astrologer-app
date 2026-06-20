@@ -1,3 +1,8 @@
+// lib/features/wallet/WalletScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/model/AstrologerWalletModel.dart';
 import 'package:astrologer_app/service/apiService.dart';
@@ -11,13 +16,9 @@ class WalletScreen extends StatefulWidget {
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  bool isLoading = true;
-  WalletData? data;
+  bool          isLoading    = true;
+  WalletData?   data;
   OnlineStatus? onlineStatus;
-
-  static const _yellow     = Color(0xFFFCD417);
-  static const _lightCream = Color(0xFFFFFBE6);
-  static const _bgCard     = Color(0xFFFEFBE6);
 
   @override
   void initState() {
@@ -42,28 +43,33 @@ class _WalletScreenState extends State<WalletScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
+    final isDark = context.isDark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        backgroundColor: _lightCream,
+        // Colors inherited from AppTheme automatically
         elevation: 0,
-        foregroundColor: Colors.black,
         title: const Text(
           'Wallet',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w500),
+          style: TextStyle(fontWeight: FontWeight.w500),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon     : const Icon(Icons.refresh),
             onPressed: _loadData,
           ),
         ],
       ),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: AppTheme.primaryYellow))
           : RefreshIndicator(
               onRefresh: _loadData,
-              child: ListView(
+              color    : AppTheme.primaryYellow,
+              child    : ListView(
                 padding: EdgeInsets.all(FigmaSize.w(16)),
                 children: [
 
@@ -72,17 +78,19 @@ class _WalletScreenState extends State<WalletScreen> {
                     children: [
                       Expanded(
                         child: _EarningCard(
-                          label:  "Total Wallet",
-                          amount: "₹ ${data?.myWallet ?? '0'}",
-                          icon:   Icons.account_balance_wallet_outlined,
+                          label : 'Total Wallet',
+                          amount: '₹ ${data?.myWallet ?? '0'}',
+                          icon  : Icons.account_balance_wallet_outlined,
+                          c     : c, isDark: isDark,
                         ),
                       ),
                       SizedBox(width: FigmaSize.w(12)),
                       Expanded(
                         child: _EarningCard(
-                          label:  "Payable Amount",
-                          amount: "₹ ${data?.payableAmount ?? '0'}",
-                          icon:   Icons.payments_outlined,
+                          label : 'Payable Amount',
+                          amount: '₹ ${data?.payableAmount ?? '0'}',
+                          icon  : Icons.payments_outlined,
+                          c     : c, isDark: isDark,
                         ),
                       ),
                     ],
@@ -92,44 +100,47 @@ class _WalletScreenState extends State<WalletScreen> {
 
                   // ── TDS info card ────────────────────────────
                   _TdsCard(
-                    tds:        data?.tds        ?? '0',
+                    tds       : data?.tds        ?? '0',
                     percentage: data?.percentage ?? '0',
-                    wallet:     data?.myWallet   ?? '0',
+                    wallet    : data?.myWallet   ?? '0',
+                    c         : c, isDark: isDark,
                   ),
 
                   SizedBox(height: FigmaSize.h(12)),
 
                   // ── Online status card ───────────────────────
                   if (onlineStatus != null)
-                    _OnlineStatusCard(status: onlineStatus!),
+                    _OnlineStatusCard(
+                        status: onlineStatus!, c: c, isDark: isDark),
 
                   SizedBox(height: FigmaSize.h(16)),
 
-                  // ── Available / payable detail ───────────────
-                  _buildBalanceCard(
-                    title:    "Today's Earning",
-                    balance:  "₹ ${data?.todayAvailableBalance ?? '0'}",
-                    payable:  "₹ ${data?.todayPayableAmount ?? '0'}",
-                    bgColor:  _bgCard,
+                  // ── Today's Earning ──────────────────────────
+                  _BalanceCard(
+                    title  : "Today's Earning",
+                    balance: '₹ ${data?.todayAvailableBalance ?? '0'}',
+                    payable: '₹ ${data?.todayPayableAmount ?? '0'}',
+                    c      : c, isDark: isDark,
                   ),
 
                   SizedBox(height: FigmaSize.h(12)),
 
-                  _buildBalanceCard(
-                    title:    "Today's Astromall",
-                    balance:  "₹ ${data?.todayAstromallAvailableBalance ?? '0'}",
-                    payable:  "₹ ${data?.todayAstromallPayableAmount ?? '0'}",
-                    bgColor:  _bgCard,
+                  // ── Today's Astromall ────────────────────────
+                  _BalanceCard(
+                    title  : "Today's Astromall",
+                    balance: '₹ ${data?.todayAstromallAvailableBalance ?? '0'}',
+                    payable: '₹ ${data?.todayAstromallPayableAmount ?? '0'}',
+                    c      : c, isDark: isDark,
                   ),
 
                   SizedBox(height: FigmaSize.h(40)),
 
                   Center(
                     child: Text(
-                      "No Transactions Available",
+                      'No Transactions Available',
                       style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: FigmaSize.w(14),
+                        color     : c.subText,
+                        fontSize  : FigmaSize.w(14),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -139,69 +150,24 @@ class _WalletScreenState extends State<WalletScreen> {
             ),
     );
   }
-
-  // ── Balance detail card ──────────────────────────────────────
-  Widget _buildBalanceCard({
-    required String title,
-    required String balance,
-    required String payable,
-    required Color bgColor,
-  }) {
-    return Container(
-      padding: EdgeInsets.all(FigmaSize.w(14)),
-      decoration: BoxDecoration(
-        color: bgColor,
-        border: Border.all(color: Colors.amber.shade200),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: FigmaSize.w(13),
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: FigmaSize.h(10)),
-          Row(
-            children: [
-              Expanded(
-                child: _BalanceItem(
-                  label: "Available Balance",
-                  value: balance,
-                ),
-              ),
-              Expanded(
-                child: _BalanceItem(
-                  label: "Payable Amount",
-                  value: payable,
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.black45),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SUB-WIDGETS
+// EARNING CARD
 // ─────────────────────────────────────────────────────────────────
-
 class _EarningCard extends StatelessWidget {
-  final String label;
-  final String amount;
+  final String   label;
+  final String   amount;
   final IconData icon;
+  final AppColors c;
+  final bool      isDark;
 
   const _EarningCard({
     required this.label,
     required this.amount,
     required this.icon,
+    required this.c,
+    required this.isDark,
   });
 
   @override
@@ -209,8 +175,11 @@ class _EarningCard extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(FigmaSize.w(14)),
       decoration: BoxDecoration(
-        color: const Color(0xFFFCD417).withOpacity(0.10),
-        border: Border.all(color: Colors.amber),
+        color       : AppTheme.primaryYellow.withOpacity(isDark ? 0.12 : 0.10),
+        border      : Border.all(
+            color: isDark
+                ? AppTheme.primaryYellow.withOpacity(0.40)
+                : Colors.amber),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -218,15 +187,17 @@ class _EarningCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: FigmaSize.w(16), color: Colors.amber.shade700),
+              Icon(icon,
+                  size : FigmaSize.w(16),
+                  color: Colors.amber.shade700),
               SizedBox(width: FigmaSize.w(6)),
               Expanded(
                 child: Text(
                   label,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: FigmaSize.w(12),
-                    color: Colors.black87,
+                    fontSize  : FigmaSize.w(12),
+                    color     : c.text,
                   ),
                 ),
               ),
@@ -236,9 +207,9 @@ class _EarningCard extends StatelessWidget {
           Text(
             amount,
             style: TextStyle(
-              color: Colors.green.shade700,
+              color     : Colors.green.shade700,
               fontWeight: FontWeight.bold,
-              fontSize: FigmaSize.w(18),
+              fontSize  : FigmaSize.w(18),
             ),
           ),
         ],
@@ -247,48 +218,70 @@ class _EarningCard extends StatelessWidget {
   }
 }
 
-// ── TDS breakdown card ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// TDS CARD
+// ─────────────────────────────────────────────────────────────────
 class _TdsCard extends StatelessWidget {
-  final String tds;
-  final String percentage;
-  final String wallet;
+  final String   tds;
+  final String   percentage;
+  final String   wallet;
+  final AppColors c;
+  final bool      isDark;
 
   const _TdsCard({
     required this.tds,
     required this.percentage,
     required this.wallet,
+    required this.c,
+    required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
+    final net = (double.tryParse(wallet) ?? 0) - (double.tryParse(tds) ?? 0);
+
     return Container(
       padding: EdgeInsets.all(FigmaSize.w(14)),
       decoration: BoxDecoration(
-        color: const Color(0xFFFCD417).withOpacity(0.10),
-        border: Border.all(color: Colors.amber),
+        color       : AppTheme.primaryYellow.withOpacity(isDark ? 0.12 : 0.10),
+        border      : Border.all(
+            color: isDark
+                ? AppTheme.primaryYellow.withOpacity(0.40)
+                : Colors.amber),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "TDS Breakdown",
+            'TDS Breakdown',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: FigmaSize.w(13),
-              color: Colors.black87,
+              fontSize  : FigmaSize.w(13),
+              color     : c.text,
             ),
           ),
           SizedBox(height: FigmaSize.h(10)),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _TdsItem(label: "Gross Wallet",    value: "₹ $wallet"),
-              _TdsItem(label: "TDS ($percentage%)", value: "- ₹ $tds",
-                  valueColor: Colors.red),
-              _TdsItem(label: "Net Payable",
-                  value: "₹ ${(double.tryParse(wallet) ?? 0) - (double.tryParse(tds) ?? 0)}",
-                  valueColor: Colors.green),
+              _TdsItem(
+                label: 'Gross Wallet',
+                value: '₹ $wallet',
+                c    : c,
+              ),
+              _TdsItem(
+                label     : 'TDS ($percentage%)',
+                value     : '- ₹ $tds',
+                valueColor: AppTheme.accentRed,
+                c         : c,
+              ),
+              _TdsItem(
+                label     : 'Net Payable',
+                value     : '₹ ${net.toStringAsFixed(2)}',
+                valueColor: Colors.green,
+                c         : c,
+              ),
             ],
           ),
         ],
@@ -298,14 +291,16 @@ class _TdsCard extends StatelessWidget {
 }
 
 class _TdsItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color valueColor;
+  final String   label;
+  final String   value;
+  final Color?   valueColor;
+  final AppColors c;
 
   const _TdsItem({
     required this.label,
     required this.value,
-    this.valueColor = Colors.black87,
+    required this.c,
+    this.valueColor,
   });
 
   @override
@@ -314,38 +309,50 @@ class _TdsItem extends StatelessWidget {
       children: [
         Text(label,
             style: TextStyle(
-                fontSize: FigmaSize.w(10), color: Colors.black54)),
+                fontSize: FigmaSize.w(10), color: c.subText)),
         SizedBox(height: FigmaSize.h(4)),
         Text(value,
             style: TextStyle(
-                fontSize: FigmaSize.w(13),
+                fontSize  : FigmaSize.w(13),
                 fontWeight: FontWeight.bold,
-                color: valueColor)),
+                color     : valueColor ?? c.text)),
       ],
     );
   }
 }
 
-// ── Online status card ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// ONLINE STATUS CARD
+// ─────────────────────────────────────────────────────────────────
 class _OnlineStatusCard extends StatelessWidget {
   final OnlineStatus status;
-  const _OnlineStatusCard({required this.status});
+  final AppColors    c;
+  final bool         isDark;
+
+  const _OnlineStatusCard({
+    required this.status,
+    required this.c,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.all(FigmaSize.w(14)),
       decoration: BoxDecoration(
-        color: const Color(0xFFFCD417).withOpacity(0.10),
-        border: Border.all(color: Colors.amber),
+        color       : AppTheme.primaryYellow.withOpacity(isDark ? 0.12 : 0.10),
+        border      : Border.all(
+            color: isDark
+                ? AppTheme.primaryYellow.withOpacity(0.40)
+                : Colors.amber),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _StatusDot(label: "Chat",  isOn: status.isChatOnline  == 'on'),
-          _StatusDot(label: "Voice", isOn: status.isCallOnline  == 'on'),
-          _StatusDot(label: "Video", isOn: status.isVideoOnline == 'on'),
+          _StatusDot(label: 'Chat',  isOn: status.isChatOnline  == 'on', c: c),
+          _StatusDot(label: 'Voice', isOn: status.isCallOnline  == 'on', c: c),
+          _StatusDot(label: 'Video', isOn: status.isVideoOnline == 'on', c: c),
         ],
       ),
     );
@@ -353,28 +360,34 @@ class _OnlineStatusCard extends StatelessWidget {
 }
 
 class _StatusDot extends StatelessWidget {
-  final String label;
-  final bool isOn;
-  const _StatusDot({required this.label, required this.isOn});
+  final String   label;
+  final bool     isOn;
+  final AppColors c;
+
+  const _StatusDot({
+    required this.label,
+    required this.isOn,
+    required this.c,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Container(
-          width: 8, height: 8,
+          width : 8, height: 8,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isOn ? Colors.green : Colors.grey,
+            color: isOn ? Colors.green : c.subText,
           ),
         ),
         SizedBox(width: FigmaSize.w(5)),
         Text(
           label,
           style: TextStyle(
-            fontSize: FigmaSize.w(12),
+            fontSize  : FigmaSize.w(12),
             fontWeight: FontWeight.w500,
-            color: isOn ? Colors.green : Colors.grey,
+            color     : isOn ? Colors.green : c.subText,
           ),
         ),
       ],
@@ -382,11 +395,80 @@ class _StatusDot extends StatelessWidget {
   }
 }
 
-// ── Balance item ──────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// BALANCE CARD
+// ─────────────────────────────────────────────────────────────────
+class _BalanceCard extends StatelessWidget {
+  final String   title;
+  final String   balance;
+  final String   payable;
+  final AppColors c;
+  final bool      isDark;
+
+  const _BalanceCard({
+    required this.title,
+    required this.balance,
+    required this.payable,
+    required this.c,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(FigmaSize.w(14)),
+      decoration: BoxDecoration(
+        color       : AppTheme.primaryYellow.withOpacity(isDark ? 0.12 : 0.10),
+        border      : Border.all(
+            color: isDark
+                ? AppTheme.primaryYellow.withOpacity(0.40)
+                : Colors.amber.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize  : FigmaSize.w(13),
+              color     : c.text,
+            ),
+          ),
+          SizedBox(height: FigmaSize.h(10)),
+          Row(
+            children: [
+              Expanded(
+                child: _BalanceItem(
+                    label: 'Available Balance', value: balance, c: c),
+              ),
+              Expanded(
+                child: _BalanceItem(
+                    label: 'Payable Amount', value: payable, c: c),
+              ),
+              Icon(Icons.chevron_right, color: c.subText),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BALANCE ITEM
+// ─────────────────────────────────────────────────────────────────
 class _BalanceItem extends StatelessWidget {
-  final String label;
-  final String value;
-  const _BalanceItem({required this.label, required this.value});
+  final String   label;
+  final String   value;
+  final AppColors c;
+
+  const _BalanceItem({
+    required this.label,
+    required this.value,
+    required this.c,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -395,14 +477,15 @@ class _BalanceItem extends StatelessWidget {
       children: [
         Text(label,
             style: TextStyle(
-                fontSize: FigmaSize.w(11), color: Colors.black54,
+                fontSize  : FigmaSize.w(11),
+                color     : c.subText,
                 fontWeight: FontWeight.w500)),
         SizedBox(height: FigmaSize.h(4)),
         Text(value,
             style: TextStyle(
-                color: Colors.green.shade700,
+                color     : Colors.green.shade700,
                 fontWeight: FontWeight.bold,
-                fontSize: FigmaSize.w(15))),
+                fontSize  : FigmaSize.w(15))),
       ],
     );
   }

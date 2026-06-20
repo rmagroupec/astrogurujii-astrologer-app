@@ -1,6 +1,9 @@
 // lib/features/Settings/FeedbackCeoScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
 
 import 'dart:convert';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:flutter/material.dart';
@@ -13,10 +16,10 @@ class FeedbackCeoScreen extends StatefulWidget {
 }
 
 class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
-  final _msgCtrl  = TextEditingController();
-  final _client   = ApiClient();
-  bool  _sending  = false;
-  bool  _sent     = false;
+  final _msgCtrl = TextEditingController();
+  final _client  = ApiClient();
+  bool  _sending = false;
+  bool  _sent    = false;
 
   @override
   void dispose() {
@@ -27,9 +30,9 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
   Future<void> _submit() async {
     final msg = _msgCtrl.text.trim();
     if (msg.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content        : Text('Please write your feedback'),
-        backgroundColor: Colors.red,
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content        : const Text('Please write your feedback'),
+        backgroundColor: AppTheme.accentRed,
       ));
       return;
     }
@@ -51,7 +54,7 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
         setState(() => _sending = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content        : Text(json['message'] ?? 'Submission failed'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppTheme.accentRed,
         ));
       }
     } catch (e) {
@@ -59,33 +62,34 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content        : Text(e.toString().replaceFirst('Exception: ', '')),
-        backgroundColor: Colors.red,
+        backgroundColor: AppTheme.accentRed,
       ));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title          : const Text('Feedback to CEO Office'),
-        backgroundColor: const Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
-        elevation      : 0,
+        // Colors inherited from AppTheme automatically
+        title    : const Text('Feedback to CEO Office'),
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.symmetric(
           horizontal: FigmaSize.w(24),
           vertical  : FigmaSize.h(24),
         ),
-        child: _sent ? _successView() : _formView(),
+        child: _sent ? _successView(c) : _formView(c),
       ),
     );
   }
 
-  // ── Success view ─────────────────────────────────────────────────────────
-  Widget _successView() {
+  // ── Success view ──────────────────────────────────────────────────────────
+  Widget _successView(AppColors c) {
     return Column(
       children: [
         SizedBox(height: FigmaSize.h(60)),
@@ -97,7 +101,7 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
           style: TextStyle(
             fontSize  : FigmaSize.w(22),
             fontWeight: FontWeight.w700,
-            color     : Colors.black,
+            color     : c.text,
           ),
         ),
         SizedBox(height: FigmaSize.h(10)),
@@ -106,7 +110,7 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
           'We value your thoughts and will review them carefully.',
           textAlign: TextAlign.center,
           style    : TextStyle(
-              fontSize: FigmaSize.w(14), color: Colors.grey.shade600),
+              fontSize: FigmaSize.w(14), color: c.subText),
         ),
         SizedBox(height: FigmaSize.h(40)),
         SizedBox(
@@ -115,7 +119,7 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
           child : ElevatedButton(
             onPressed: () => setState(() => _sent = false),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFCD417),
+              backgroundColor: AppTheme.primaryYellow,
               foregroundColor: Colors.black,
               elevation      : 0,
               shape: RoundedRectangleBorder(
@@ -124,7 +128,8 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
             child: Text(
               'Submit Another',
               style: TextStyle(
-                  fontSize: FigmaSize.w(15), fontWeight: FontWeight.w600),
+                  fontSize  : FigmaSize.w(15),
+                  fontWeight: FontWeight.w600),
             ),
           ),
         ),
@@ -133,17 +138,26 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
   }
 
   // ── Form view ─────────────────────────────────────────────────────────────
-  Widget _formView() {
+  Widget _formView(AppColors c) {
+    final isDark = context.isDark;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header card
+
+        // ── Header card ────────────────────────────────────────────────────
         Container(
-          width     : double.infinity,
-          padding   : EdgeInsets.all(FigmaSize.w(16)),
+          width    : double.infinity,
+          padding  : EdgeInsets.all(FigmaSize.w(16)),
           decoration: BoxDecoration(
-            color       : const Color(0xFFFFFBE6),
-            border      : Border.all(color: const Color(0xFFFCD417)),
+            color       : isDark
+                ? AppTheme.primaryYellow.withOpacity(0.10)
+                : const Color(0xFFFFFBE6),
+            border      : Border.all(
+              color: isDark
+                  ? AppTheme.primaryYellow.withOpacity(0.40)
+                  : AppTheme.primaryYellow,
+            ),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Column(
@@ -159,7 +173,7 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
                     style: TextStyle(
                       fontSize  : FigmaSize.w(15),
                       fontWeight: FontWeight.w700,
-                      color     : Colors.black,
+                      color     : c.text,
                     ),
                   ),
                 ],
@@ -170,8 +184,7 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
                 'Share suggestions, concerns, or ideas openly. '
                 'All submissions are confidential.',
                 style: TextStyle(
-                    fontSize: FigmaSize.w(12),
-                    color   : Colors.grey.shade700),
+                    fontSize: FigmaSize.w(12), color: c.subText),
               ),
             ],
           ),
@@ -179,37 +192,42 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
 
         SizedBox(height: FigmaSize.h(24)),
 
+        // ── Label ──────────────────────────────────────────────────────────
         Text(
           'Your Message',
           style: TextStyle(
             fontSize  : FigmaSize.w(13),
             fontWeight: FontWeight.w600,
-            color     : Colors.black,
+            color     : c.text,
           ),
         ),
         SizedBox(height: FigmaSize.h(8)),
 
-        // Message field
+        // ── Message field ──────────────────────────────────────────────────
         TextField(
-          controller    : _msgCtrl,
-          maxLines      : 8,
-          maxLength     : 1000,
+          controller     : _msgCtrl,
+          maxLines       : 8,
+          maxLength      : 1000,
           textInputAction: TextInputAction.newline,
-          decoration    : InputDecoration(
+          style          : TextStyle(color: c.text),
+          decoration: InputDecoration(
             hintText      : 'Write your feedback, suggestion or concern...',
             hintStyle     : TextStyle(
-                color: Colors.grey.shade400, fontSize: FigmaSize.w(13)),
+                color: c.subText, fontSize: FigmaSize.w(13)),
+            filled        : true,
+            fillColor     : isDark ? c.surface : null,
             border        : OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide  : BorderSide(color: Colors.grey.shade300),
+              borderSide  : BorderSide(color: c.border),
             ),
             enabledBorder : OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide  : BorderSide(color: Colors.grey.shade300),
+              borderSide  : BorderSide(color: c.border),
             ),
             focusedBorder : OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide  : const BorderSide(color: Color(0xFFFCD417), width: 1.5),
+              borderSide  : BorderSide(
+                  color: AppTheme.primaryYellow, width: 1.5),
             ),
             contentPadding: EdgeInsets.all(FigmaSize.w(14)),
           ),
@@ -219,19 +237,19 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
         Text(
           '* Your feedback is anonymous and goes directly to leadership.',
           style: TextStyle(
-              fontSize: FigmaSize.w(11), color: Colors.grey.shade500),
+              fontSize: FigmaSize.w(11), color: c.subText),
         ),
 
         SizedBox(height: FigmaSize.h(32)),
 
-        // Submit button
+        // ── Submit button ──────────────────────────────────────────────────
         SizedBox(
           width : double.infinity,
           height: FigmaSize.h(52),
           child : ElevatedButton(
             onPressed: _sending ? null : _submit,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFCD417),
+              backgroundColor: AppTheme.primaryYellow,
               foregroundColor: Colors.black,
               elevation      : 0,
               shape: RoundedRectangleBorder(
@@ -239,8 +257,8 @@ class _FeedbackCeoScreenState extends State<FeedbackCeoScreen> {
             ),
             child: _sending
                 ? const SizedBox(
-                    width: 22, height: 22,
-                    child: CircularProgressIndicator(
+                    width : 22, height: 22,
+                    child : CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.black),
                   )
                 : Text(

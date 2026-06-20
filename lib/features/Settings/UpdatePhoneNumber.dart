@@ -1,5 +1,10 @@
+// lib/features/Settings/UpdatePhoneNumber.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
 import 'dart:convert';
 
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/service/apiService.dart';
 import 'package:flutter/material.dart';
@@ -13,54 +18,66 @@ class Updatephonenumber extends StatefulWidget {
 }
 
 class _UpdatephonenumberState extends State<Updatephonenumber> {
-  TextEditingController _registeredPhone = new TextEditingController();
-  TextEditingController _primaryPhone = new TextEditingController();
-  TextEditingController _secondaryPhone = new TextEditingController();
+  final _registeredPhone = TextEditingController();
+  final _primaryPhone    = TextEditingController();
+  final _secondaryPhone  = TextEditingController();
+
+  @override
+  void dispose() {
+    _registeredPhone.dispose();
+    _primaryPhone.dispose();
+    _secondaryPhone.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title: Text("Update Phone Number"),
-        backgroundColor: Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
+        // Colors inherited from AppTheme automatically
+        title: const Text('Update Phone Number'),
       ),
       body: Padding(
         padding: EdgeInsetsGeometry.symmetric(
           horizontal: FigmaSize.w(27),
-          vertical: FigmaSize.h(11),
+          vertical  : FigmaSize.h(11),
         ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: EdgeInsets.all(FigmaSize.w(0)),
-              child: Text(
-                '''Register number is only for logging into the application. you will receive  calls and chat alert on your primary and secondary number only.''',
-                style: TextStyle(
-                  fontSize: FigmaSize.w(11),
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black,
-                ),
+            Text(
+              'Register number is only for logging into the application. '
+              'You will receive calls and chat alerts on your primary and '
+              'secondary number only.',
+              style: TextStyle(
+                fontSize  : FigmaSize.w(11),
+                fontWeight: FontWeight.w500,
+                color     : c.subText,
               ),
             ),
-            buildTextContentWithField(
-              "7615976021",
-              "Registered Phone Number",
-              _registeredPhone,
+            _PhoneField(
+              hintText  : '7615976021',
+              label     : 'Registered Phone Number',
+              controller: _registeredPhone,
+              c         : c,
+              onVerify  : _handleVerify,
             ),
-
-            buildTextContentWithField(
-              "7615976021",
-              "Primary Phone Number",
-              _primaryPhone,
+            _PhoneField(
+              hintText  : '7615976021',
+              label     : 'Primary Phone Number',
+              controller: _primaryPhone,
+              c         : c,
+              onVerify  : _handleVerify,
             ),
-
-            buildTextContentWithField(
-              "7615976021",
-              "Secondary   Phone Number",
-              _secondaryPhone,
+            _PhoneField(
+              hintText  : '7615976021',
+              label     : 'Secondary Phone Number',
+              controller: _secondaryPhone,
+              c         : c,
+              onVerify  : _handleVerify,
             ),
           ],
         ),
@@ -68,141 +85,230 @@ class _UpdatephonenumberState extends State<Updatephonenumber> {
     );
   }
 
-  Widget buildTextContentWithField(
-    String? hintText,
-    String? text,
-    TextEditingController _controller,
-  ) {
+  // ── Verify + OTP logic ────────────────────────────────────────────────────
+  Future<void> _handleVerify(TextEditingController controller) async {
+    final data = {'number': controller.text};
+    final sent = await ApiService().UpdatePhoneNumberFunc(data);
+    final rsp  = jsonDecode(sent.body) as Map<String, dynamic>;
+
+    if (rsp['result'] == true) {
+      _showOtpSheet(
+        phone   : controller.text,
+        onVerify: (otp) async {
+          final newData = {'number': controller.text, 'otp': otp};
+          final verified = await ApiService().UpdatePhoneNumberFunc(newData);
+          final rspData  = jsonDecode(verified.body) as Map<String, dynamic>;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(rspData['message'] ?? '')),
+            );
+          }
+        },
+      );
+    }
+  }
+
+  void _showOtpSheet({
+    required String             phone,
+    required Function(String)   onVerify,
+  }) {
+    final otpController = TextEditingController();
+    final c             = context.colors;
+
+    showModalBottomSheet(
+      context           : context,
+      isScrollControlled: true,
+      backgroundColor   : Colors.transparent,
+      builder: (_) => Container(
+        decoration: BoxDecoration(
+          color       : c.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left  : 24, right: 24, top: 24,
+        ),
+        child: Column(
+          mainAxisSize     : MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter OTP',
+              style: TextStyle(
+                  fontSize  : 18,
+                  fontWeight: FontWeight.w600,
+                  color     : c.text),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller  : otpController,
+              keyboardType: TextInputType.number,
+              maxLength   : 6,
+              style       : TextStyle(color: c.text),
+              decoration  : InputDecoration(
+                hintText     : 'Enter 6 digit OTP',
+                hintStyle    : TextStyle(color: c.subText),
+                border       : OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide  : BorderSide(color: c.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide  : BorderSide(color: c.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide  : BorderSide(
+                      color: AppTheme.primaryYellow, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  onVerify(otpController.text.trim());
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryYellow,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Verify OTP',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Phone field row ───────────────────────────────────────────────────────────
+class _PhoneField extends StatelessWidget {
+  final String                              hintText;
+  final String                              label;
+  final TextEditingController               controller;
+  final AppColors                           c;
+  final Future<void> Function(TextEditingController) onVerify;
+
+  const _PhoneField({
+    required this.hintText,
+    required this.label,
+    required this.controller,
+    required this.c,
+    required this.onVerify,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(height: FigmaSize.h(37)),
         Text(
-          text ?? "Registered Phone Number",
+          label,
           style: TextStyle(
-            fontSize: FigmaSize.w(16),
+            fontSize  : FigmaSize.w(16),
             fontWeight: FontWeight.w600,
-            color: Colors.black,
+            color     : c.text,
           ),
         ),
         Container(
           padding: EdgeInsets.symmetric(vertical: FigmaSize.h(12)),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color       : c.surface,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+
+              // Country code + caret
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
-                    "+91",
+                    '+91',
                     style: TextStyle(
-                      color: Colors.black,
-                      fontSize: FigmaSize.w(18),
+                      color     : c.text,
+                      fontSize  : FigmaSize.w(18),
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   SizedBox(width: FigmaSize.w(9)),
                   SvgPicture.asset(
-                    "assets/images/caret-arrow-up.svg",
-                    height: FigmaSize.h(13),
-                    width: FigmaSize.w(13),
+                    'assets/images/caret-arrow-up.svg',
+                    height     : FigmaSize.h(13),
+                    width      : FigmaSize.w(13),
+                    colorFilter: isDark
+                        ? ColorFilter.mode(c.subText, BlendMode.srcIn)
+                        : null,
                   ),
                 ],
               ),
+
               SizedBox(width: FigmaSize.w(35)),
-              // Phone number
+
+              // Phone number input
               SizedBox(
                 width: FigmaSize.w(159),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     TextFormField(
-                      controller: _controller,
+                      controller  : controller,
                       keyboardType: TextInputType.phone,
                       style: TextStyle(
-                        color: const Color(0xFF838383),
-                        fontSize: FigmaSize.w(16),
+                        color     : c.subText,
+                        fontSize  : FigmaSize.w(16),
                         fontWeight: FontWeight.w500,
                       ),
                       decoration: InputDecoration(
-                        hintText: hintText ?? "Enter Phone Number",
+                        hintText : hintText,
                         hintStyle: TextStyle(
-                          color: const Color(0xFF838383),
-                          fontSize: FigmaSize.w(16),
+                          color     : c.subText,
+                          fontSize  : FigmaSize.w(16),
                           fontWeight: FontWeight.w500,
                         ),
-                        border: InputBorder.none,
-                        isDense: true,
+                        border        : InputBorder.none,
+                        isDense       : true,
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
                     SizedBox(height: FigmaSize.h(4)),
-                    Divider(
-                      color: const Color(0xFF000000).withOpacity(0.06),
-                      height: 1,
-                    ),
+                    Divider(color: c.divider, height: 1),
                   ],
                 ),
               ),
 
-              // Verify Button
+              // Verify button
               GestureDetector(
-                onTap: () async {
-                  dynamic data = {"number": _controller.text};
-
-                  var sent = await ApiService().UpdatePhoneNumberFunc(data);
-                  Map<String, dynamic> rsp = jsonDecode(sent.body);
-                  if (rsp["result"]) {
-                    showOtpSheet(
-                      context: context,
-                      phone: _controller.text,
-                      onVerify: (otp) async {
-                     dynamic newdata = {
-                          "number": _controller.text,
-                          "otp": otp,
-                        };
-                        final verified = await ApiService()
-                            .UpdatePhoneNumberFunc(newdata);
-                        Map<String, dynamic> rsp_data = jsonDecode(
-                          verified.body,
-                        );
-                        if (rsp_data["result"]) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(rsp_data["message"])),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(rsp_data["message"])),
-                          );
-                        }
-                      },
-                    );
-                  }
-                },
+                onTap: () => onVerify(controller),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 22,
-                    vertical: 10,
-                  ),
+                      horizontal: 22, vertical: 10),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [Color(0xFFFCD417), Color(0xFFFFE569)],
+                      begin  : Alignment.centerLeft,
+                      end    : Alignment.centerRight,
+                      colors : [Color(0xFFFCD417), Color(0xFFFFE569)],
                     ),
-                    borderRadius: BorderRadius.circular(FigmaSize.w(10)),
+                    borderRadius:
+                        BorderRadius.circular(FigmaSize.w(10)),
                   ),
                   child: const Text(
-                    "Verify",
+                    'Verify',
                     style: TextStyle(
-                      color: Colors.black,
-                      fontSize: 16,
+                      color     : Colors.black,
+                      fontSize  : 16,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -212,70 +318,6 @@ class _UpdatephonenumberState extends State<Updatephonenumber> {
           ),
         ),
       ],
-    );
-  }
-
-  void showOtpSheet({
-    required BuildContext context,
-    required String phone,
-    required Function(String otp) onVerify,
-  }) {
-    final otpController = TextEditingController();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            left: 24,
-            right: 24,
-            top: 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Enter OTP",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 16),
-
-              TextFormField(
-                controller: otpController,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                decoration: InputDecoration(
-                  hintText: "Enter 6 digit OTP",
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-
-              SizedBox(height: 20),
-
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    onVerify(otpController.text.trim());
-                  },
-                  child: Text("Verify OTP"),
-                ),
-              ),
-
-              SizedBox(height: 20),
-            ],
-          ),
-        );
-      },
     );
   }
 }

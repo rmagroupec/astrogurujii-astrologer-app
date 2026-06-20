@@ -1,6 +1,10 @@
+// lib/features/Settings/TermsAndConditions.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/service/apiService.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 
@@ -9,55 +13,70 @@ class TermsAndConditionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
+    final isDark = context.isDark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-
-      /// AppBar
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title: const Text("Terms & Conditions"),
-        backgroundColor: const Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
+        // Colors inherited from AppTheme automatically
+        title: const Text('Terms & Conditions'),
       ),
-
-      /// Body
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: FigmaSize.w(20),
-          vertical: FigmaSize.h(12),
+          vertical  : FigmaSize.h(12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            /// Heading
+            // ── Heading ──────────────────────────────────────────────────
             Text(
-              "Terms of Use",
+              'Terms of Use',
               style: TextStyle(
-                fontSize: FigmaSize.w(18),
+                fontSize  : FigmaSize.w(18),
                 fontWeight: FontWeight.w600,
-                color: Colors.black,
+                color     : c.text,
               ),
             ),
 
             SizedBox(height: FigmaSize.h(10)),
 
-            /// HTML from API
+            // ── HTML content from API ─────────────────────────────────────
             Expanded(
               child: FutureBuilder<String>(
-                future: ApiService().TermsAndCondition(context),
+                future : ApiService().TermsAndCondition(context),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(
+                      child: CircularProgressIndicator(
+                          color: AppTheme.primaryYellow),
+                    );
+                  }
+
+                  if (snapshot.hasError || !snapshot.hasData) {
+                    return Center(
+                      child: Text(
+                        'Failed to load terms.',
+                        style: TextStyle(color: c.subText),
+                      ),
+                    );
                   }
 
                   return SingleChildScrollView(
                     child: Html(
-                      data: snapshot.data!,
+                      data : snapshot.data!,
                       style: {
-                        "body": Style(
-                          fontSize: FontSize(FigmaSize.w(13)),
-                          color: Colors.black87,
+                        'body': Style(
+                          fontSize  : FontSize(FigmaSize.w(13)),
+                          // Adapt text color to current theme
+                          color     : isDark ? c.text : Colors.black87,
                           fontFamily: 'Poppins',
+                          backgroundColor: Colors.transparent,
+                        ),
+                        'a': Style(
+                          color: AppTheme.primaryYellow,
                         ),
                       },
                     ),

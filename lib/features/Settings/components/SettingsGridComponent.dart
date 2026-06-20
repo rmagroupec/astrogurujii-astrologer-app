@@ -1,5 +1,8 @@
+// lib/features/Settings/components/SettingsGridComponent.dart
+// ── Theme-aware: zero hardcoded colors (all colors live in IconForSetting) ─────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
 import 'package:astrologer_app/core/utils/size_config.dart';
-import 'package:astrologer_app/core/widgets/RoundedIconWidgetForHome.dart';
 import 'package:astrologer_app/features/Settings/BankDetails.dart';
 import 'package:astrologer_app/features/Settings/DownloadForm16A.dart';
 import 'package:astrologer_app/features/Settings/GalleryScreen.dart';
@@ -20,93 +23,94 @@ class SettingsIconGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Define your data in a simple list
     final List<Map<String, dynamic>> menuItems = [
       {
-        "icon": "phone-call.svg",
-        "label": "Update Phone Number",
-        "page": const Updatephonenumber(),
+        'icon' : 'phone-call.svg',
+        'label': 'Update Phone Number',
+        'page' : const Updatephonenumber(),
       },
       {
-        "icon": "contact-book.svg",
-        "label": "Imp. Contacts to Saved",
-        "page": const ImportantNumberPage(), // replace when ready
+        'icon' : 'contact-book.svg',
+        'label': 'Imp. Contacts to Saved',
+        'page' : const ImportantNumberPage(),
       },
       {
-        "icon": "videos.svg",
-        "label": "Training Videos",
-        "page": const TrainingVideosScreen(),
+        'icon' : 'videos.svg',
+        'label': 'Training Videos',
+        'page' : const TrainingVideosScreen(),
       },
       {
-        "icon": "terms-and-conditions.svg",
-        "label": "Terms & Conditions",
-        "page": const TermsAndConditionScreen(), // replace
+        'icon' : 'terms-and-conditions.svg',
+        'label': 'Terms & Conditions',
+        'page' : const TermsAndConditionScreen(),
       },
       {
-        "icon": "bank.svg",
-        "label": "Bank Details",
-        "page": const Bankdetails(), // replace
+        'icon' : 'bank.svg',
+        'label': 'Bank Details',
+        'page' : const Bankdetails(),
       },
       {
-        "icon": "price-tag.svg",
-        "label": "Price Change Request",
-        "page": const Pricechangerequest(), // replace
+        'icon' : 'price-tag.svg',
+        'label': 'Price Change Request',
+        'page' : const Pricechangerequest(),
       },
       {
-        "icon": "price-tag.svg",
-        "label": "Download Form 16A",
-        "page": const Downloadform16a(),
+        'icon' : 'price-tag.svg',
+        'label': 'Download Form 16A',
+        'page' : const Downloadform16a(),
       },
       {
-        "icon": "download-file.svg",
-        "label": "Pay Slip",
-        "page": const Payslipscreen(), // replace
+        'icon' : 'download-file.svg',
+        'label': 'Pay Slip',
+        'page' : const Payslipscreen(),
       },
       {
-        "icon": "membership.svg",
-        "label": "Membership",
-        "page": const Mymembership(), // replace
+        'icon' : 'membership.svg',
+        'label': 'Membership',
+        'page' : const Mymembership(),
       },
       {
-        "icon": "review.svg",
-        "label": "Refer an Astrologer",
-        "page": const Referastrologer(),
+        'icon' : 'review.svg',
+        'label': 'Refer an Astrologer',
+        'page' : const Referastrologer(),
       },
       {
-        "icon": "gallery.svg",
-        "label": "Gallery",
-        "page": const Galleryscreen(), // replace
+        'icon' : 'gallery.svg',
+        'label': 'Gallery',
+        'page' : const Galleryscreen(),
       },
       {
-        "icon": "bill.svg",
-        "label": "Update Billing Address",
-        "page": const Invoice(), // replace
+        'icon' : 'bill.svg',
+        'label': 'Update Billing Address',
+        'page' : const Invoice(),
       },
-      {"icon": "invoice.svg", "label": "Invoice", "page": const Invoice()},
+      {
+        'icon' : 'invoice.svg',
+        'label': 'Invoice',
+        'page' : const Invoice(),
+      },
     ];
 
     return GridView.builder(
-      shrinkWrap:
-          true, // Important: allows GridView to be inside a Column/Scrollview
-      physics: const NeverScrollableScrollPhysics(), // Let the parent scroll
-      padding: EdgeInsets.symmetric(horizontal: FigmaSize.w(10)),
+      shrinkWrap: true,
+      physics   : const NeverScrollableScrollPhysics(),
+      padding   : EdgeInsets.symmetric(horizontal: FigmaSize.w(10)),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3, // 5 items per row
-        mainAxisSpacing: FigmaSize.h(12), // Vertical spacing
-        crossAxisSpacing: FigmaSize.w(21), // Horizontal spacing
-        childAspectRatio: 0.88, // Adjust this to fit your label height
+        crossAxisCount  : 3,
+        mainAxisSpacing : FigmaSize.h(12),
+        crossAxisSpacing: FigmaSize.w(21),
+        childAspectRatio: 0.88,
       ),
-      itemCount: menuItems.length,
+      itemCount  : menuItems.length,
       itemBuilder: (context, index) {
         return IconForSetting(
-          iconPath: "assets/images/${menuItems[index]['icon']}",
-          label: menuItems[index]['label']!,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => menuItems[index]['page']),
-            );
-          },
+          iconPath: 'assets/images/${menuItems[index]['icon']}',
+          label   : menuItems[index]['label']!,
+          onTap   : () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => menuItems[index]['page']),
+          ),
         );
       },
     );

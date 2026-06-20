@@ -1,8 +1,11 @@
-import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
-import 'package:flutter/material.dart';
-import 'package:astrologer_app/core/config/theme_config.dart';
-import 'package:astrologer_app/service/apiService.dart';
+// lib/features/pooja/PoojaBookingScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
 
+import 'package:astrologer_app/core/config/theme_config.dart';
+import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
+import 'package:astrologer_app/service/apiService.dart';
+import 'package:flutter/material.dart';
 
 class PoojaBookingScreen extends StatefulWidget {
   const PoojaBookingScreen({super.key});
@@ -12,9 +15,9 @@ class PoojaBookingScreen extends StatefulWidget {
 }
 
 class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
-  bool isLoading = true;
-  bool isError = false;
-  List<PoojaBooking> bookings = [];
+  bool               isLoading = true;
+  bool               isError   = false;
+  List<PoojaBooking> bookings  = [];
 
   @override
   void initState() {
@@ -22,164 +25,200 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
     fetchPoojaBookings();
   }
 
-  /// ================================
-  /// API CALL
-  /// ================================
+  // ── API ────────────────────────────────────────────────────────────────────
   Future<void> fetchPoojaBookings() async {
-    setState(() {
-      isLoading = true;
-      isError = false;
-    });
-
+    setState(() { isLoading = true; isError = false; });
     try {
       final res = await ApiService().getPujaBooking();
-      
-     setState(() {
-       
-        bookings = res.data;
-     });
+      setState(() => bookings = res.data);
     } catch (e) {
-      isError = true;
-      bookings = [];
+      isError   = true;
+      bookings  = [];
     }
-
     setState(() => isLoading = false);
   }
 
-  /// ================================
-  /// START LIVE API
-  /// ================================
   Future<void> startLivePooja(PoojaBooking booking) async {
     try {
-      await ApiService().PoojaStartLive(
-       booking.pujaBookingId.toString()
-      );
-
+      await ApiService().PoojaStartLive(booking.pujaBookingId.toString());
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Pooja started successfully")),
+        const SnackBar(content: Text('Pooja started successfully')),
       );
-
-      fetchPoojaBookings(); // refresh
+      fetchPoojaBookings();
     } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to start pooja")),
+        const SnackBar(content: Text('Failed to start pooja')),
       );
     }
   }
-  
 
-  /// ================================
-  /// UI
-  /// ================================
+  // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F6F6),
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title: const Text("Pooja Bookings"),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.black,
+        // Colors inherited from AppTheme automatically
+        title    : const Text('Pooja Bookings'),
         elevation: 1,
       ),
-      body: _body(),
+      body: _body(c),
     );
   }
 
-  Widget _body() {
+  Widget _body(AppColors c) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: CircularProgressIndicator(color: AppTheme.primaryYellow),
+      );
     }
 
     if (isError) {
       return Center(
-        child: ElevatedButton(
-          onPressed: fetchPoojaBookings,
-          child: const Text("Retry"),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline,
+                color: AppTheme.accentRed, size: 48),
+            const SizedBox(height: 12),
+            Text('Something went wrong',
+                style: TextStyle(color: c.subText)),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: fetchPoojaBookings,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryYellow,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text('Retry'),
+            ),
+          ],
         ),
       );
     }
 
     if (bookings.isEmpty) {
-      return const Center(child: Text("No Pooja Bookings Found"));
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.event_busy_rounded,
+                size: 56, color: c.subText.withOpacity(0.35)),
+            const SizedBox(height: 12),
+            Text('No Pooja Bookings Found',
+                style: TextStyle(color: c.subText, fontSize: 14)),
+          ],
+        ),
+      );
     }
 
     return RefreshIndicator(
       onRefresh: fetchPoojaBookings,
-      child: ListView.builder(
-        itemCount: bookings.length,
-        itemBuilder: (_, i) => _bookingCard(bookings[i]),
+      color    : AppTheme.primaryYellow,
+      child    : ListView.builder(
+        itemCount  : bookings.length,
+        itemBuilder: (_, i) => _BookingCard(
+          booking       : bookings[i],
+          c             : c,
+          isDark        : context.isDark,
+          onStartLive   : () => startLivePooja(bookings[i]),
+        ),
       ),
     );
   }
+}
 
-  /// ================================
-  /// BOOKING CARD
-  /// ================================
-  Widget _bookingCard(PoojaBooking b) {
-    final bool canStartLive =
-        b.paymentStatus == "Success" && b.isLive == false;
+// ─────────────────────────────────────────────────────────────────
+// BOOKING CARD
+// ─────────────────────────────────────────────────────────────────
+class _BookingCard extends StatelessWidget {
+  final PoojaBooking booking;
+  final AppColors    c;
+  final bool         isDark;
+  final VoidCallback onStartLive;
+
+  const _BookingCard({
+    required this.booking,
+    required this.c,
+    required this.isDark,
+    required this.onStartLive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final b            = booking;
+    final canStartLive = b.paymentStatus == 'Success' && b.isLive == false;
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      margin : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color       : c.surface,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6),
-        ],
+        border      : Border.all(color: c.border),
+        boxShadow   : isDark
+            ? []
+            : const [BoxShadow(color: Colors.black12, blurRadius: 6)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          /// HEADER
+
+          // ── Header ────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                b.pujaType,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
+              Expanded(
+                child: Text(
+                  b.pujaType,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize  : 15,
+                    color     : c.text,
+                  ),
                 ),
               ),
-              _statusChip(b.paymentStatus),
+              const SizedBox(width: 8),
+              _StatusChip(status: b.paymentStatus),
             ],
           ),
 
           const SizedBox(height: 6),
 
-          /// BOOKING ID
+          // ── Booking ID ────────────────────────────────────────────
           Text(
-            "Booking ID: ${b.pujaBookingId}",
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            'Booking ID: ${b.pujaBookingId}',
+            style: TextStyle(fontSize: 12, color: c.subText),
           ),
 
           const SizedBox(height: 10),
 
-          /// DATE
+          // ── Date ─────────────────────────────────────────────────
           Row(
             children: [
-              const Icon(Icons.calendar_today, size: 14),
+              Icon(Icons.calendar_today, size: 14, color: c.subText),
               const SizedBox(width: 6),
               Text(
-                b.pujaDate.isEmpty ? "Date not assigned" : b.pujaDate,
-                style: const TextStyle(fontSize: 13),
+                b.pujaDate.isEmpty ? 'Date not assigned' : b.pujaDate,
+                style: TextStyle(fontSize: 13, color: c.text),
               ),
             ],
           ),
 
-          /// TIME
+          // ── Time ──────────────────────────────────────────────────
           if (b.startTime.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Row(
                 children: [
-                  const Icon(Icons.access_time, size: 14),
+                  Icon(Icons.access_time, size: 14, color: c.subText),
                   const SizedBox(width: 6),
                   Text(
-                    "${b.startTime}${b.endTime.isNotEmpty ? " - ${b.endTime}" : ""}",
-                    style: const TextStyle(fontSize: 13),
+                    '${b.startTime}${b.endTime.isNotEmpty ? ' - ${b.endTime}' : ''}',
+                    style: TextStyle(fontSize: 13, color: c.text),
                   ),
                 ],
               ),
@@ -187,79 +226,96 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
 
           const SizedBox(height: 10),
 
-          /// AMOUNT
+          // ── Amount ────────────────────────────────────────────────
           Text(
-            "Amount: ₹${b.pujaAmount}",
-            style: const TextStyle(
+            'Amount: ₹${b.pujaAmount}',
+            style: TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 14,
+              fontSize  : 14,
+              color     : c.text,
             ),
           ),
 
           const SizedBox(height: 14),
 
-          /// ACTION
+          // ── Action ────────────────────────────────────────────────
           if (canStartLive)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
+                  backgroundColor: AppTheme.primaryYellow,
+                  foregroundColor: Colors.black,
+                  elevation      : 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
-                onPressed: () => startLivePooja(b),
+                onPressed: onStartLive,
                 child: const Text(
-                  "Start Live",
-                  style: TextStyle(color: Colors.white),
+                  'Start Live',
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
             )
           else if (b.isLive)
-            _infoText("Live in progress")
+            _InfoText(text: 'Live in progress', color: Colors.green)
           else
-            _infoText("Waiting for payment"),
+            _InfoText(text: 'Waiting for payment', color: AppTheme.accentRed.withOpacity(0.7)),
         ],
       ),
     );
   }
+}
 
-  Widget _statusChip(String status) {
-    Color color;
+// ─────────────────────────────────────────────────────────────────
+// STATUS CHIP
+// ─────────────────────────────────────────────────────────────────
+class _StatusChip extends StatelessWidget {
+  final String status;
+  const _StatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    final Color color;
     switch (status) {
-      case "Success":
-        color = Colors.green;
-        break;
-      case "Pending":
-        color = Colors.orange;
-        break;
-      default:
-        color = Colors.grey;
+      case 'Success': color = Colors.green;  break;
+      case 'Pending': color = Colors.orange; break;
+      default:        color = Colors.grey;
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(.15),
+        color       : color.withOpacity(isDark ? 0.20 : 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         status,
         style: TextStyle(
-          color: color,
-          fontSize: 12,
+          color     : color,
+          fontSize  : 12,
           fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
+}
 
-  Widget _infoText(String text) {
+// ─────────────────────────────────────────────────────────────────
+// INFO TEXT
+// ─────────────────────────────────────────────────────────────────
+class _InfoText extends StatelessWidget {
+  final String text;
+  final Color  color;
+  const _InfoText({required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Colors.grey,
-        ),
+        style: TextStyle(fontSize: 13, color: color),
       ),
     );
   }

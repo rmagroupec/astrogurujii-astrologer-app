@@ -1,3 +1,8 @@
+// lib/features/Settings/MyCommunityScreen.dart
+// ── Theme-aware: uses updated commonWidget functions that accept BuildContext ──
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/features/Settings/components/commonWidget.dart';
 import 'package:flutter/material.dart';
 
@@ -13,40 +18,42 @@ class _MyCommunityFollowersState extends State<MyCommunityFollowers> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: yellowAppBar("My Community"),
+      backgroundColor: c.bg,
+      appBar: yellowAppBar('My Community'),
       body: Column(
         children: [
           communityTabs(
+            context,
             selectedIndex: selectedCommunityTab,
             onTabChange: (index) {
-              setState(() {
-                selectedCommunityTab = index;
-              });
+              setState(() => selectedCommunityTab = index);
             },
           ),
-
-          // 🔥 SWITCH UI HERE
           Expanded(
-            child: _buildTabContent(),
+            child: _buildTabContent(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTabContent() {
+  Widget _buildTabContent(BuildContext context) {
     switch (selectedCommunityTab) {
       case 0: // Followers
         return Column(
           children: [
-            searchField(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: searchField(context),
+            ),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: 4,
-                itemBuilder: (_, __) => communityUserCard(),
+                padding   : const EdgeInsets.all(12),
+                itemCount : 4,
+                itemBuilder: (ctx, __) => communityUserCard(ctx),
               ),
             ),
           ],
@@ -55,12 +62,15 @@ class _MyCommunityFollowersState extends State<MyCommunityFollowers> {
       case 1: // Favourites
         return Column(
           children: [
-            searchField(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: searchField(context),
+            ),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: 2,
-                itemBuilder: (_, __) => communityUserCard(),
+                padding   : const EdgeInsets.all(12),
+                itemCount : 2,
+                itemBuilder: (ctx, __) => communityUserCard(ctx),
               ),
             ),
           ],
@@ -70,13 +80,13 @@ class _MyCommunityFollowersState extends State<MyCommunityFollowers> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            alwaysOnlineInfo(),
-            searchAndSort(),
+            alwaysOnlineInfo(context),
+            searchAndSort(context),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: 4,
-                itemBuilder: (_, __) => alwaysOnlineCard(),
+                padding   : const EdgeInsets.all(12),
+                itemCount : 4,
+                itemBuilder: (ctx, __) => alwaysOnlineCard(ctx),
               ),
             ),
           ],

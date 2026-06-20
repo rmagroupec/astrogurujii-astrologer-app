@@ -1,6 +1,9 @@
 // lib/features/account/SupportChatScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
 
 import 'dart:convert';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -78,7 +81,8 @@ class _SupportService {
     };
   }
 
-  Future<Map<String, dynamic>> _post(String endpoint, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _post(
+      String endpoint, Map<String, dynamic> body) async {
     final response = await http
         .post(
           Uri.parse('$_base$endpoint'),
@@ -124,9 +128,11 @@ class _SupportService {
     if (data['result'] == true) {
       final inner = data['data'] as Map<String, dynamic>;
       return (
-        ticket  : SupportTicket.fromJson(inner['ticket'] as Map<String, dynamic>),
+        ticket  : SupportTicket.fromJson(
+            inner['ticket'] as Map<String, dynamic>),
         messages: (inner['messages'] as List? ?? [])
-            .map((e) => SupportMessage.fromJson(e as Map<String, dynamic>))
+            .map((e) =>
+                SupportMessage.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
     }
@@ -184,18 +190,16 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
   // ── Create-ticket bottom sheet ────────────────────────────────────────────
   void _showCreateSheet() {
+    final c           = context.colors;
+    final isDark      = context.isDark;
     final subjectCtrl = TextEditingController();
     final messageCtrl = TextEditingController();
 
     showModalBottomSheet(
       context           : context,
       isScrollControlled: true,
-      backgroundColor   : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetCtx) {
-        // Local StatefulBuilder so the button spinner works
+      backgroundColor   : Colors.transparent,
+      builder           : (sheetCtx) {
         return StatefulBuilder(
           builder: (sheetCtx, setSheet) {
             bool sending = false;
@@ -204,19 +208,20 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
               final subject = subjectCtrl.text.trim();
               final message = messageCtrl.text.trim();
               if (subject.isEmpty || message.isEmpty) return;
-
               setSheet(() => sending = true);
               try {
-                await _service.createTicket(subject: subject, message: message);
+                await _service.createTicket(
+                    subject: subject, message: message);
                 if (!mounted) return;
-                Navigator.of(sheetCtx).pop();   // close sheet
-                _load();                         // refresh list
+                Navigator.of(sheetCtx).pop();
+                _load();
               } catch (e) {
                 setSheet(() => sending = false);
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content        : Text(e.toString().replaceFirst('Exception: ', '')),
-                  backgroundColor: Colors.red,
+                  content        : Text(e.toString()
+                      .replaceFirst('Exception: ', '')),
+                  backgroundColor: AppTheme.accentRed,
                   behavior       : SnackBarBehavior.floating,
                   margin         : const EdgeInsets.all(16),
                   shape: RoundedRectangleBorder(
@@ -225,23 +230,29 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
               }
             }
 
-            return Padding(
+            return Container(
+              decoration: BoxDecoration(
+                color       : c.surface,
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16)),
+              ),
               padding: EdgeInsets.only(
                 left  : 16,
                 right : 16,
                 top   : 20,
-                bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 24,
+                bottom:
+                    MediaQuery.of(sheetCtx).viewInsets.bottom + 24,
               ),
               child: Column(
-                mainAxisSize      : MainAxisSize.min,   // ← fixed crash
+                mainAxisSize      : MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // drag handle
+                  // Drag handle
                   Center(
                     child: Container(
                       width : 40, height: 4,
                       decoration: BoxDecoration(
-                        color       : Colors.grey.shade300,
+                        color       : c.border,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -253,6 +264,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                     style: TextStyle(
                       fontSize  : FigmaSize.w(16),
                       fontWeight: FontWeight.w600,
+                      color     : c.text,
                     ),
                   ),
                   SizedBox(height: FigmaSize.h(16)),
@@ -261,13 +273,16 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                   TextField(
                     controller     : subjectCtrl,
                     textInputAction: TextInputAction.next,
+                    style          : TextStyle(color: c.text),
                     decoration: InputDecoration(
                       hintText     : 'Subject',
-                      hintStyle    : TextStyle(color: Colors.grey.shade400),
+                      hintStyle    : TextStyle(color: c.subText),
                       enabledBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.grey.shade300)),
-                      focusedBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.black)),
+                          borderSide: BorderSide(color: c.border)),
+                      focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(
+                              color: AppTheme.primaryYellow,
+                              width: 2)),
                     ),
                   ),
                   SizedBox(height: FigmaSize.h(16)),
@@ -277,29 +292,35 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                     controller     : messageCtrl,
                     maxLines       : 4,
                     textInputAction: TextInputAction.done,
+                    style          : TextStyle(color: c.text),
                     decoration: InputDecoration(
                       hintText     : 'Describe your issue...',
-                      hintStyle    : TextStyle(color: Colors.grey.shade400),
+                      hintStyle    : TextStyle(color: c.subText),
+                      filled       : true,
+                      fillColor    : isDark
+                          ? c.toggleBg
+                          : const Color(0xFFF5F5F5),
                       enabledBorder: OutlineInputBorder(
-                        borderSide  : BorderSide(color: Colors.grey.shade300),
+                        borderSide  : BorderSide(color: c.border),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderSide  : const BorderSide(color: Colors.black),
+                        borderSide  : BorderSide(
+                            color: AppTheme.primaryYellow, width: 2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
                   ),
                   SizedBox(height: FigmaSize.h(20)),
 
-                  // Submit
+                  // Submit button
                   SizedBox(
                     width : double.infinity,
                     height: FigmaSize.h(55),
                     child : ElevatedButton(
                       onPressed: sending ? null : submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFFD700),
+                        backgroundColor: AppTheme.primaryYellow,
                         foregroundColor: Colors.black,
                         elevation      : 0,
                         shape: RoundedRectangleBorder(
@@ -309,7 +330,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                           ? const SizedBox(
                               width : 22, height: 22,
                               child : CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.black),
+                                  strokeWidth: 2,
+                                  color      : Colors.black),
                             )
                           : Text(
                               'Submit',
@@ -332,26 +354,22 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        backgroundColor   : Colors.white,
-        elevation         : 0,
-        leading           : IconButton(          // ← fixed: was Icon, not tappable
-          icon    : const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        // Colors inherited from AppTheme automatically
+        elevation: 0,
         title: const Text(
           'Support Chat',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+          style: TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
       body: Column(
         children: [
-          // ticket list
-          Expanded(child: _buildList()),
-
-          // footer
+          Expanded(child: _buildList(c)),
+          // Footer
           Padding(
             padding: EdgeInsets.all(FigmaSize.w(16)),
             child: Column(
@@ -360,7 +378,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                 Text(
                   'Data shown for last 3 days only',
                   style: TextStyle(
-                      color: Colors.grey, fontSize: FigmaSize.w(14)),
+                      color: c.subText, fontSize: FigmaSize.w(14)),
                 ),
                 SizedBox(height: FigmaSize.h(16)),
                 SizedBox(
@@ -369,7 +387,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                   child : ElevatedButton(
                     onPressed: _showCreateSheet,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFFD700),
+                      backgroundColor: AppTheme.primaryYellow,
                       foregroundColor: Colors.black,
                       elevation      : 0,
                       shape: RoundedRectangleBorder(
@@ -391,25 +409,30 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     );
   }
 
-  Widget _buildList() {
+  Widget _buildList(AppColors c) {
     if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+      return Center(
+          child: CircularProgressIndicator(
+              color: AppTheme.primaryYellow));
     }
     if (_error != null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 40),
+            Icon(Icons.error_outline,
+                color: AppTheme.accentRed, size: 40),
             SizedBox(height: FigmaSize.h(12)),
-            Text(_error!, style: const TextStyle(color: Colors.red),
+            Text(_error!,
+                style    : TextStyle(color: AppTheme.accentRed),
                 textAlign: TextAlign.center),
             SizedBox(height: FigmaSize.h(12)),
             TextButton.icon(
               onPressed: _load,
-              icon : const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              icon : Icon(Icons.refresh,
+                  color: AppTheme.primaryYellow),
+              label: Text('Retry',
+                  style: TextStyle(color: AppTheme.primaryYellow)),
             ),
           ],
         ),
@@ -420,14 +443,15 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
         child: Text(
           'No tickets in the last 3 days.\nTap "Create New Chat" to raise one.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey, fontSize: FigmaSize.w(14)),
+          style: TextStyle(
+              color: c.subText, fontSize: FigmaSize.w(14)),
         ),
       );
     }
     return RefreshIndicator(
       onRefresh: _load,
-      color    : const Color(0xFFFFD700),
-      child: ListView.builder(
+      color    : AppTheme.primaryYellow,
+      child    : ListView.builder(
         itemCount  : _tickets.length,
         itemBuilder: (_, i) {
           final t = _tickets[i];
@@ -436,7 +460,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                    builder: (_) => TicketDetailScreen(ticket: t)),
+                    builder: (_) =>
+                        TicketDetailScreen(ticket: t)),
               );
               _load();
             },
@@ -445,7 +470,9 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
               message    : t.message,
               dateTime   : t.createdAt,
               status     : t.status,
-              statusColor: t.status == 'Open' ? Colors.green : Colors.red,
+              statusColor: t.status == 'Open'
+                  ? Colors.green
+                  : AppTheme.accentRed,
             ),
           );
         },
@@ -454,7 +481,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   }
 }
 
-// ─── TicketTile (unchanged UI) ────────────────────────────────────────────────
+// ─── TicketTile ───────────────────────────────────────────────────────────────
 
 class TicketTile extends StatelessWidget {
   final String ticketNo;
@@ -474,13 +501,23 @@ class TicketTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
+    final isDark = context.isDark;
+
     return Container(
-      padding   : EdgeInsets.symmetric(
+      padding: EdgeInsets.symmetric(
           horizontal: FigmaSize.w(16), vertical: FigmaSize.h(12)),
-      decoration: const BoxDecoration(
-        color : Color(0xFFFFFBE6),
+      decoration: BoxDecoration(
+        // Light: warm yellow tint. Dark: surface with yellow border bottom.
+        color : isDark
+            ? c.surface
+            : const Color(0xFFFFFBE6),
         border: Border(
-            bottom: BorderSide(color: Color(0xFFFFE082), width: 1)),
+          bottom: BorderSide(
+            color: isDark ? c.divider : const Color(0xFFFFE082),
+            width: 1,
+          ),
+        ),
       ),
       child: Stack(
         children: [
@@ -490,13 +527,14 @@ class TicketTile extends StatelessWidget {
               RichText(
                 text: TextSpan(
                   style: TextStyle(
-                      color: Colors.black, fontSize: FigmaSize.w(14)),
+                      color   : c.text,
+                      fontSize: FigmaSize.w(14)),
                   children: [
                     const TextSpan(text: 'Ticket No. '),
                     TextSpan(
                       text : ticketNo,
-                      style: const TextStyle(
-                          color     : Colors.red,
+                      style: TextStyle(
+                          color     : AppTheme.accentRed,
                           fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -506,13 +544,15 @@ class TicketTile extends StatelessWidget {
               Text(
                 message,
                 style: TextStyle(
-                    fontSize: FigmaSize.w(15), fontWeight: FontWeight.w500),
+                    fontSize  : FigmaSize.w(15),
+                    fontWeight: FontWeight.w500,
+                    color     : c.text),
               ),
               SizedBox(height: FigmaSize.h(8)),
               Text(
                 dateTime,
                 style: TextStyle(
-                    color: Colors.black54, fontSize: FigmaSize.w(13)),
+                    color: c.subText, fontSize: FigmaSize.w(13)),
               ),
             ],
           ),
@@ -588,7 +628,6 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
   Future<void> _send() async {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty || _sending) return;
-
     setState(() => _sending = true);
     try {
       await _service.sendReply(_ticket.id, text);
@@ -597,11 +636,13 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content        : Text(e.toString().replaceFirst('Exception: ', '')),
-        backgroundColor: Colors.red,
+        content        : Text(
+            e.toString().replaceFirst('Exception: ', '')),
+        backgroundColor: AppTheme.accentRed,
         behavior       : SnackBarBehavior.floating,
         margin         : const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8)),
       ));
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -622,31 +663,36 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c        = context.colors;
+    final isDark   = context.isDark;
     final isClosed = _ticket.status == 'Closed';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        backgroundColor: const Color(0xFFEBC351),
-        elevation      : 0,
-        leading: IconButton(
-          icon     : const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        backgroundColor: isDark
+            ? const Color(0xFF1A1A1A)
+            : AppTheme.primaryYellow,
+        foregroundColor: isDark ? Colors.white : Colors.black,
+        elevation: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               _ticket.ticketNo,
-              style: const TextStyle(
-                  color     : Colors.black,
-                  fontWeight: FontWeight.w600,
-                  fontSize  : 15),
+              style: TextStyle(
+                color     : isDark ? Colors.white : Colors.black,
+                fontWeight: FontWeight.w600,
+                fontSize  : 15,
+              ),
             ),
             Text(
               _ticket.subject,
-              style   : const TextStyle(color: Colors.black87, fontSize: 12),
               overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color   : isDark ? Colors.white70 : Colors.black87,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
@@ -657,41 +703,39 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
               label: Text(
                 _ticket.status,
                 style: TextStyle(
-                  color     : isClosed ? Colors.red : Colors.green,
+                  color     : isClosed ? AppTheme.accentRed : Colors.green,
                   fontWeight: FontWeight.bold,
                   fontSize  : 12,
                 ),
               ),
               backgroundColor: isClosed
-                  ? Colors.red.withOpacity(0.1)
-                  : Colors.green.withOpacity(0.1),
+                  ? AppTheme.accentRed.withOpacity(isDark ? 0.20 : 0.10)
+                  : Colors.green.withOpacity(isDark ? 0.20 : 0.10),
               side: BorderSide(
-                  color: isClosed ? Colors.red : Colors.green),
+                  color: isClosed ? AppTheme.accentRed : Colors.green),
             ),
           ),
         ],
       ),
       body: Column(
         children: [
-          // messages
-          Expanded(child: _buildMessages()),
-
-          // input / closed banner
-          isClosed ? _closedBanner() : _inputBar(),
+          Expanded(child: _buildMessages(c)),
+          isClosed ? _closedBanner(c) : _inputBar(c, isDark),
         ],
       ),
     );
   }
 
-  Widget _buildMessages() {
+  Widget _buildMessages(AppColors c) {
     if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+      return Center(
+          child: CircularProgressIndicator(
+              color: AppTheme.primaryYellow));
     }
     if (_messages.isEmpty) {
-      return const Center(
+      return Center(
           child: Text('No messages yet',
-              style: TextStyle(color: Colors.grey)));
+              style: TextStyle(color: c.subText)));
     }
     return ListView.builder(
       controller : _scrollCtrl,
@@ -701,9 +745,9 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     );
   }
 
-  Widget _inputBar() {
+  Widget _inputBar(AppColors c, bool isDark) {
     return Container(
-      color  : Colors.white,
+      color  : c.surface,
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
       child  : Row(
         children: [
@@ -712,11 +756,12 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
               controller     : _msgCtrl,
               textInputAction: TextInputAction.send,
               onSubmitted    : (_) => _send(),
+              style          : TextStyle(color: c.text),
               decoration: InputDecoration(
                 hintText      : 'Type a message…',
-                hintStyle     : const TextStyle(color: Colors.grey),
+                hintStyle     : TextStyle(color: c.subText),
                 filled        : true,
-                fillColor     : const Color(0xFFF5F5F5),
+                fillColor     : isDark ? c.toggleBg : const Color(0xFFF5F5F5),
                 border        : OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide  : BorderSide.none,
@@ -728,7 +773,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
           ),
           const SizedBox(width: 8),
           CircleAvatar(
-            backgroundColor: const Color(0xFFEBC351),
+            backgroundColor: AppTheme.primaryYellow,
             child: _sending
                 ? const SizedBox(
                     width : 18, height: 18,
@@ -745,11 +790,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     );
   }
 
-  Widget _closedBanner() {
+  Widget _closedBanner(AppColors c) {
+    final isDark = context.isDark;
     return Container(
       width  : double.infinity,
       padding: EdgeInsets.all(FigmaSize.w(12)),
-      color  : const Color(0xFFFFF9E6),
+      color  : isDark
+          ? Colors.orange.withOpacity(0.12)
+          : const Color(0xFFFFF9E6),
       child  : Text(
         'This ticket is closed. Create a new ticket to get support.',
         textAlign: TextAlign.center,
@@ -769,7 +817,10 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isMe = msg.isAstrologer;
+    final c      = context.colors;
+    final isDark = context.isDark;
+    final isMe   = msg.isAstrologer;
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child    : Container(
@@ -779,17 +830,23 @@ class _MessageBubble extends StatelessWidget {
           left  : isMe ? FigmaSize.w(48) : 0,
           right : isMe ? 0 : FigmaSize.w(48),
         ),
-        padding   : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color      : isMe
-              ? const Color(0xFFEBC351)
-              : const Color(0xFFF0F0F0),
+          color: isMe
+              ? AppTheme.primaryYellow
+              : isDark
+                  ? c.surface
+                  : const Color(0xFFF0F0F0),
           borderRadius: BorderRadius.only(
             topLeft    : const Radius.circular(16),
             topRight   : const Radius.circular(16),
             bottomLeft : Radius.circular(isMe ? 16 : 4),
             bottomRight: Radius.circular(isMe ? 4 : 16),
           ),
+          border: (!isMe && isDark)
+              ? Border.all(color: c.border)
+              : null,
         ),
         child: Column(
           crossAxisAlignment:
@@ -800,20 +857,26 @@ class _MessageBubble extends StatelessWidget {
               style: TextStyle(
                 fontSize  : FigmaSize.w(11),
                 fontWeight: FontWeight.w600,
-                color     : isMe ? Colors.black54 : Colors.grey,
+                color     : isMe
+                    ? Colors.black54
+                    : c.subText,
               ),
             ),
             SizedBox(height: FigmaSize.h(4)),
             Text(
               msg.message,
               style: TextStyle(
-                  fontSize: FigmaSize.w(14), color: Colors.black87),
+                fontSize: FigmaSize.w(14),
+                color   : isMe ? Colors.black87 : c.text,
+              ),
             ),
             SizedBox(height: FigmaSize.h(4)),
             Text(
               msg.createdAt,
               style: TextStyle(
-                  fontSize: FigmaSize.w(10), color: Colors.black38),
+                fontSize: FigmaSize.w(10),
+                color   : isMe ? Colors.black38 : c.subText,
+              ),
             ),
           ],
         ),

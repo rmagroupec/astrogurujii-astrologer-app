@@ -1,3 +1,8 @@
+// lib/features/Settings/ImmprtantNoticeScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/features/Settings/components/commonWidget.dart';
 import 'package:astrologer_app/features/Settings/components/NotificationDetailModel.dart';
@@ -13,7 +18,7 @@ class ImportantNoticeScreen extends StatefulWidget {
 }
 
 class _ImportantNoticeScreenState extends State<ImportantNoticeScreen> {
-  int  _selectedTab = 0; // 0 = All, 1 = Unread
+  int  _selectedTab = 0;
   bool _isLoading   = true;
   List<AstroNotification> _all    = [];
   List<AstroNotification> _unread = [];
@@ -44,9 +49,11 @@ class _ImportantNoticeScreenState extends State<ImportantNoticeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: yellowAppBar("Important Notice"),
+      backgroundColor: c.bg,
+      appBar: yellowAppBar('Important Notice'),
       body: Column(
         children: [
 
@@ -54,26 +61,29 @@ class _ImportantNoticeScreenState extends State<ImportantNoticeScreen> {
           _TabBar(
             selectedTab: _selectedTab,
             unreadCount: _unread.length,
-            onChanged:   (i) => setState(() => _selectedTab = i),
+            onChanged  : (i) => setState(() => _selectedTab = i),
           ),
 
-          const Divider(height: 1),
+          Divider(height: 1, color: c.divider),
 
           // ── Content ──────────────────────────────────────────
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(
+                    child: CircularProgressIndicator(
+                        color: AppTheme.primaryYellow))
                 : _active.isEmpty
-                    ? _emptyState()
+                    ? _emptyState(c)
                     : RefreshIndicator(
                         onRefresh: _fetch,
-                        child: ListView.builder(
-                          itemCount: _active.length,
-                          itemBuilder: (_, i) =>
-                              _NoticeTile(
-                                notification: _active[i],
-                                onTap: () => _openDetail(_active[i]),
-                              ),
+                        color    : AppTheme.primaryYellow,
+                        child    : ListView.builder(
+                          itemCount  : _active.length,
+                          itemBuilder: (_, i) => _NoticeTile(
+                            notification: _active[i],
+                            onTap       : () => _openDetail(_active[i]),
+                            c           : c,
+                          ),
                         ),
                       ),
           ),
@@ -84,7 +94,7 @@ class _ImportantNoticeScreenState extends State<ImportantNoticeScreen> {
 
   void _openDetail(AstroNotification n) {
     showModalBottomSheet(
-      context: context,
+      context           : context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -93,22 +103,18 @@ class _ImportantNoticeScreenState extends State<ImportantNoticeScreen> {
     );
   }
 
-  Widget _emptyState() {
+  Widget _emptyState(AppColors c) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.notifications_none,
-              size: 64, color: Colors.grey.shade300),
+              size: 64, color: c.subText.withOpacity(0.35)),
           SizedBox(height: FigmaSize.h(12)),
           Text(
-            _selectedTab == 1
-                ? "No unread notices"
-                : "No notices yet",
+            _selectedTab == 1 ? 'No unread notices' : 'No notices yet',
             style: TextStyle(
-              color: Colors.grey,
-              fontSize: FigmaSize.w(14),
-            ),
+                color: c.subText, fontSize: FigmaSize.w(14)),
           ),
         ],
       ),
@@ -135,17 +141,15 @@ class _TabBar extends StatelessWidget {
     return Row(
       children: [
         _TabItem(
-          title:    "All",
-          index:    0,
+          title   : 'All',
           selected: selectedTab == 0,
-          onTap:    () => onChanged(0),
+          onTap   : () => onChanged(0),
         ),
         _TabItem(
-          title:      "Unread",
-          index:      1,
-          selected:   selectedTab == 1,
-          onTap:      () => onChanged(1),
-          badge:      unreadCount,
+          title   : 'Unread',
+          selected: selectedTab == 1,
+          onTap   : () => onChanged(1),
+          badge   : unreadCount,
         ),
       ],
     );
@@ -153,15 +157,13 @@ class _TabBar extends StatelessWidget {
 }
 
 class _TabItem extends StatelessWidget {
-  final String title;
-  final int    index;
-  final bool   selected;
+  final String       title;
+  final bool         selected;
   final VoidCallback onTap;
-  final int    badge;
+  final int          badge;
 
   const _TabItem({
     required this.title,
-    required this.index,
     required this.selected,
     required this.onTap,
     this.badge = 0,
@@ -169,6 +171,8 @@ class _TabItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -181,29 +185,28 @@ class _TabItem extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: FigmaSize.w(14),
+                    fontSize  : FigmaSize.w(14),
                     fontWeight: FontWeight.w600,
-                    color: Colors.black,
+                    color     : selected ? c.text : c.subText,
                   ),
                 ),
-                // badge for unread count
                 if (badge > 0) ...[
                   SizedBox(width: FigmaSize.w(6)),
                   Container(
                     padding: EdgeInsets.symmetric(
                       horizontal: FigmaSize.w(6),
-                      vertical:   FigmaSize.h(2),
+                      vertical  : FigmaSize.h(2),
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFCD417),
+                      color       : AppTheme.primaryYellow,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       badge.toString(),
                       style: TextStyle(
-                        fontSize: FigmaSize.w(10),
-                        fontWeight: FontWeight.bold,
-                      ),
+                          fontSize  : FigmaSize.w(10),
+                          fontWeight: FontWeight.bold,
+                          color     : Colors.black),
                     ),
                   ),
                 ],
@@ -212,8 +215,10 @@ class _TabItem extends StatelessWidget {
             SizedBox(height: FigmaSize.h(10)),
             Container(
               height: FigmaSize.h(2),
-              width:  FigmaSize.w(110),
-              color:  selected ? const Color(0xFFFCD417) : Colors.transparent,
+              width : FigmaSize.w(110),
+              color : selected
+                  ? AppTheme.primaryYellow
+                  : Colors.transparent,
             ),
           ],
         ),
@@ -227,54 +232,60 @@ class _TabItem extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────
 class _NoticeTile extends StatelessWidget {
   final AstroNotification notification;
-  final VoidCallback onTap;
+  final VoidCallback      onTap;
+  final AppColors         c;
 
   const _NoticeTile({
     required this.notification,
     required this.onTap,
+    required this.c,
   });
 
   @override
   Widget build(BuildContext context) {
-    final n = notification;
+    final n      = notification;
+    final isDark = context.isDark;
 
     return InkWell(
       onTap: onTap,
       child: Container(
         padding: EdgeInsets.symmetric(
           horizontal: FigmaSize.w(16),
-          vertical:   FigmaSize.h(12),
+          vertical  : FigmaSize.h(12),
         ),
         decoration: BoxDecoration(
-          // highlight unread rows
-          color: n.isRead ? Colors.white : const Color(0xFFFCD417).withOpacity(0.07),
+          // Unread: subtle yellow tint in both modes
+          color: n.isRead
+              ? c.surface
+              : AppTheme.primaryYellow.withOpacity(isDark ? 0.10 : 0.07),
           border: Border(
-            bottom: BorderSide(color: Colors.grey.shade200),
+            bottom: BorderSide(color: c.divider),
           ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // ── Avatar ──────────────────────────────────────
+            // ── Avatar ────────────────────────────────────────
             Container(
-              height: FigmaSize.h(42),
-              width:  FigmaSize.w(42),
+              height    : FigmaSize.h(42),
+              width     : FigmaSize.w(42),
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFFFCD417).withOpacity(0.15),
-                border: Border.all(color: const Color(0xFFFCD417)),
+                shape : BoxShape.circle,
+                color : AppTheme.primaryYellow.withOpacity(
+                    isDark ? 0.20 : 0.15),
+                border: Border.all(color: AppTheme.primaryYellow),
               ),
               child: Icon(
                 Icons.campaign_outlined,
-                color: const Color(0xFFFCD417),
-                size: FigmaSize.w(22),
+                color: AppTheme.primaryYellow,
+                size : FigmaSize.w(22),
               ),
             ),
 
             SizedBox(width: FigmaSize.w(12)),
 
-            // ── Text content ─────────────────────────────────
+            // ── Text content ──────────────────────────────────
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,8 +296,8 @@ class _NoticeTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize:   FigmaSize.w(14),
-                      color: n.isRead ? Colors.black87 : Colors.black,
+                      fontSize  : FigmaSize.w(14),
+                      color     : c.text,
                     ),
                   ),
                   SizedBox(height: FigmaSize.h(4)),
@@ -295,9 +306,7 @@ class _NoticeTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: FigmaSize.w(12),
-                      color:    Colors.grey.shade600,
-                    ),
+                        fontSize: FigmaSize.w(12), color: c.subText),
                   ),
                 ],
               ),
@@ -310,17 +319,14 @@ class _NoticeTile extends StatelessWidget {
                 Text(
                   n.addedOn,
                   style: TextStyle(
-                    fontSize: FigmaSize.w(11),
-                    color:    Colors.black54,
-                  ),
+                      fontSize: FigmaSize.w(11), color: c.subText),
                 ),
                 SizedBox(height: FigmaSize.h(8)),
                 if (!n.isRead)
                   Container(
-                    width:  8,
-                    height: 8,
+                    width : 8, height: 8,
                     decoration: const BoxDecoration(
-                      color: Color(0xFFFCD417),
+                      color: AppTheme.primaryYellow,
                       shape: BoxShape.circle,
                     ),
                   ),

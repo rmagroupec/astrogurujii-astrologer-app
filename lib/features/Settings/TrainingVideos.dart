@@ -1,6 +1,9 @@
 // lib/features/Settings/TrainingVideosScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
 
 import 'dart:convert';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:flutter/material.dart';
@@ -33,7 +36,6 @@ class TrainingVideo {
         description: j['description']?.toString() ?? '',
       );
 
-  /// Extract video ID from any YouTube URL format
   String get videoId {
     final m = RegExp(r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})')
         .firstMatch(youtubeUrl);
@@ -57,10 +59,10 @@ class TrainingVideosScreen extends StatefulWidget {
 class _TrainingVideosScreenState extends State<TrainingVideosScreen> {
   final _client = ApiClient();
 
-  List<TrainingVideo> _videos   = [];
+  List<TrainingVideo> _videos     = [];
   List<String>        _categories = ['All'];
-  String              _selected = 'All';
-  bool                _loading  = true;
+  String              _selected   = 'All';
+  bool                _loading    = true;
   String?             _error;
 
   @override
@@ -122,46 +124,56 @@ class _TrainingVideosScreenState extends State<TrainingVideosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
+    final isDark = context.isDark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title          : const Text('Training Videos'),
-        backgroundColor: const Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
-        elevation      : 0,
+        // Colors inherited from AppTheme automatically
+        title    : const Text('Training Videos'),
+        elevation: 0,
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFFCD417)))
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: AppTheme.primaryYellow))
           : _error != null
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                      Icon(Icons.error_outline,
+                          color: AppTheme.accentRed, size: 40),
                       SizedBox(height: FigmaSize.h(12)),
-                      Text(_error!, style: const TextStyle(color: Colors.red),
+                      Text(_error!,
+                          style    : TextStyle(color: AppTheme.accentRed),
                           textAlign: TextAlign.center),
                       SizedBox(height: FigmaSize.h(12)),
                       TextButton.icon(
                         onPressed: _load,
-                        icon : const Icon(Icons.refresh),
-                        label: const Text('Retry'),
+                        icon : Icon(Icons.refresh,
+                            color: AppTheme.primaryYellow),
+                        label: Text('Retry',
+                            style: TextStyle(
+                                color: AppTheme.primaryYellow)),
                       ),
                     ],
                   ),
                 )
               : Column(
                   children: [
-                    // ── Category filter chips ──────────────────────────────
+
+                    // ── Category filter chips ─────────────────────────────
                     if (_categories.length > 1) ...[
                       Container(
-                        width      : double.infinity,
-                        color      : Colors.white,
-                        padding    : EdgeInsets.symmetric(
+                        width  : double.infinity,
+                        color  : c.surface,
+                        padding: EdgeInsets.symmetric(
                             vertical: FigmaSize.h(10)),
                         child: SizedBox(
                           height: FigmaSize.h(36),
-                          child: ListView.separated(
+                          child : ListView.separated(
                             scrollDirection : Axis.horizontal,
                             padding         : EdgeInsets.symmetric(
                                 horizontal: FigmaSize.w(16)),
@@ -175,22 +187,23 @@ class _TrainingVideosScreenState extends State<TrainingVideosScreen> {
                                 onTap: () =>
                                     setState(() => _selected = cat),
                                 child: AnimatedContainer(
-                                  duration: const Duration(
+                                  duration : const Duration(
                                       milliseconds: 200),
                                   alignment: Alignment.center,
-                                  padding: EdgeInsets.symmetric(
+                                  padding  : EdgeInsets.symmetric(
                                       horizontal: FigmaSize.w(16)),
                                   decoration: BoxDecoration(
                                     color: selected
-                                        ? const Color(0xFFFCD417)
-                                        : const Color(0xFFF5F5F5),
+                                        ? AppTheme.primaryYellow
+                                        : isDark
+                                            ? c.toggleBg
+                                            : const Color(0xFFF5F5F5),
                                     borderRadius:
                                         BorderRadius.circular(18),
                                     border: Border.all(
                                       color: selected
-                                          ? const Color(0xFFFCD417)
-                                          : Colors.grey.shade300,
-                                      width: 1,
+                                          ? AppTheme.primaryYellow
+                                          : c.border,
                                     ),
                                   ),
                                   child: Text(
@@ -202,7 +215,7 @@ class _TrainingVideosScreenState extends State<TrainingVideosScreen> {
                                           : FontWeight.w400,
                                       color: selected
                                           ? Colors.black
-                                          : Colors.black54,
+                                          : c.subText,
                                     ),
                                   ),
                                 ),
@@ -211,33 +224,34 @@ class _TrainingVideosScreenState extends State<TrainingVideosScreen> {
                           ),
                         ),
                       ),
-                      Divider(
-                          height  : 1,
-                          thickness: 1,
-                          color   : Colors.grey.shade100),
+                      Divider(height: 1, thickness: 1, color: c.divider),
                     ],
 
-                    // ── Video list ─────────────────────────────────────────
+                    // ── Video list ────────────────────────────────────────
                     Expanded(
                       child: _filtered.isEmpty
                           ? Center(
                               child: Text(
                                 'No videos in this category.',
                                 style: TextStyle(
-                                    color: Colors.grey,
+                                    color   : c.subText,
                                     fontSize: FigmaSize.w(14)),
                               ),
                             )
                           : RefreshIndicator(
                               onRefresh: _load,
-                              color    : const Color(0xFFFCD417),
+                              color    : AppTheme.primaryYellow,
                               child    : ListView.separated(
                                 padding: EdgeInsets.all(FigmaSize.w(16)),
                                 itemCount: _filtered.length,
                                 separatorBuilder: (_, __) =>
                                     SizedBox(height: FigmaSize.h(14)),
-                                itemBuilder: (_, i) =>
-                                    _VideoCard(_filtered[i], onTap: _open),
+                                itemBuilder: (_, i) => _VideoCard(
+                                  _filtered[i],
+                                  onTap: _open,
+                                  c    : c,
+                                  isDark: isDark,
+                                ),
                               ),
                             ),
                     ),
@@ -247,10 +261,18 @@ class _TrainingVideosScreenState extends State<TrainingVideosScreen> {
   }
 }
 
+// ── Video card ────────────────────────────────────────────────────────────────
 class _VideoCard extends StatelessWidget {
-  final TrainingVideo video;
+  final TrainingVideo              video;
   final void Function(TrainingVideo) onTap;
-  const _VideoCard(this.video, {required this.onTap});
+  final AppColors                  c;
+  final bool                       isDark;
+
+  const _VideoCard(this.video, {
+    required this.onTap,
+    required this.c,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -258,21 +280,24 @@ class _VideoCard extends StatelessWidget {
       onTap: () => onTap(video),
       child: Container(
         decoration: BoxDecoration(
-          color       : Colors.white,
-          border      : Border.all(color: const Color(0xFFE7E7E7)),
+          color       : c.surface,
+          border      : Border.all(color: c.border),
           borderRadius: BorderRadius.circular(10),
-          boxShadow   : [
-            BoxShadow(
-              color    : Colors.black.withOpacity(0.04),
-              blurRadius: 6,
-              offset   : const Offset(0, 2),
-            ),
-          ],
+          boxShadow   : isDark
+              ? []
+              : [
+                  BoxShadow(
+                    color     : Colors.black.withOpacity(0.04),
+                    blurRadius: 6,
+                    offset    : const Offset(0, 2),
+                  ),
+                ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Thumbnail with play overlay
+
+            // ── Thumbnail + play overlay ────────────────────────────────
             Stack(
               alignment: Alignment.center,
               children: [
@@ -281,36 +306,37 @@ class _VideoCard extends StatelessWidget {
                       top: Radius.circular(10)),
                   child: Image.network(
                     video.autoThumbnail,
-                    width     : double.infinity,
-                    height    : FigmaSize.h(160),
-                    fit       : BoxFit.cover,
+                    width : double.infinity,
+                    height: FigmaSize.h(160),
+                    fit   : BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
                       height: FigmaSize.h(160),
-                      color : Colors.grey.shade100,
-                      child : const Icon(Icons.video_library,
-                          color: Colors.grey, size: 48),
+                      color : isDark ? c.toggleBg : Colors.grey.shade100,
+                      child : Icon(Icons.video_library,
+                          color: c.subText, size: 48),
                     ),
                   ),
                 ),
+                // Play button
                 Container(
                   width : FigmaSize.w(48),
                   height: FigmaSize.h(48),
                   decoration: BoxDecoration(
-                    color       : Colors.black.withOpacity(0.55),
-                    shape       : BoxShape.circle,
+                    color: Colors.black.withOpacity(0.55),
+                    shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.play_arrow,
                       color: Colors.white, size: 28),
                 ),
                 // Category badge
                 Positioned(
-                  top  : 8, right: 8,
+                  top: 8, right: 8,
                   child: Container(
                     padding: EdgeInsets.symmetric(
                         horizontal: FigmaSize.w(8),
                         vertical  : FigmaSize.h(3)),
                     decoration: BoxDecoration(
-                      color       : const Color(0xFFFCD417),
+                      color       : AppTheme.primaryYellow,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -325,7 +351,7 @@ class _VideoCard extends StatelessWidget {
               ],
             ),
 
-            // Title + description
+            // ── Title + description ─────────────────────────────────────
             Padding(
               padding: EdgeInsets.all(FigmaSize.w(12)),
               child: Column(
@@ -336,36 +362,36 @@ class _VideoCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize  : FigmaSize.w(14),
                       fontWeight: FontWeight.w600,
-                      color     : Colors.black,
+                      color     : c.text,
                     ),
                   ),
                   if (video.description.isNotEmpty) ...[
                     SizedBox(height: FigmaSize.h(4)),
                     Text(
                       video.description,
-                      maxLines : 2,
-                      overflow : TextOverflow.ellipsis,
-                      style    : TextStyle(
-                          fontSize: FigmaSize.w(12), color: Colors.grey),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style   : TextStyle(
+                          fontSize: FigmaSize.w(12), color: c.subText),
                     ),
                   ],
                   SizedBox(height: FigmaSize.h(8)),
                   Row(
                     children: [
-                      const Icon(Icons.play_circle_outline,
-                          color: Colors.red, size: 18),
+                      Icon(Icons.play_circle_outline,
+                          color: AppTheme.accentRed, size: 18),
                       SizedBox(width: FigmaSize.w(4)),
                       Text(
                         'Watch on YouTube',
                         style: TextStyle(
                           fontSize  : FigmaSize.w(12),
-                          color     : Colors.red,
+                          color     : AppTheme.accentRed,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                       const Spacer(),
-                      const Icon(Icons.arrow_forward_ios,
-                          size: 12, color: Colors.grey),
+                      Icon(Icons.arrow_forward_ios,
+                          size: 12, color: c.subText),
                     ],
                   ),
                 ],

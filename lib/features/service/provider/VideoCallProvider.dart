@@ -12,8 +12,12 @@ import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:astrologer_app/features/service/active_call_store.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:permission_handler/permission_handler.dart';
-
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 typedef OnCallEnded = void Function(String reason);
 
 class VideoCallProvider extends ChangeNotifier {
@@ -62,6 +66,41 @@ bool get remoteVideoOn => _remoteVideoOn;
     return '$m:$s';
   }
 
+StreamSubscription<DatabaseEvent>? _callSessionSub;
+
+void listenCallSession(String channelId) {
+  _callSessionSub?.cancel();
+  final ref = FirebaseDatabase.instanceFor(
+    app        : Firebase.app(),
+    databaseURL: 'https://astrogurujii-production-default-rtdb.firebaseio.com/',
+  ).ref().child('CallSession').child(channelId);
+
+  _callSessionSub = ref.onValue.listen((event) {
+    final data = event.snapshot.value;
+    if (data == null) return;
+    final map    = Map<String, dynamic>.from(data as Map);
+    final status = (map['status'] ?? '') as String;
+
+    if (['end_user', 'end_astro', 'wallet_empty'].contains(status) && !_isEnded) {
+      // Server ended the call
+      endLocalCall();
+      _onCallEnded?.call('Call ended');
+    }
+  });
+}
+
+// Call this in initAgora() after joining channel:
+void startDeduction({
+  required String channelId,
+  required Future<void> Function(String) deductApi,
+}) {
+  _deductTimer?.cancel();
+  _deductTimer = Timer.periodic(
+    const Duration(minutes: 1),
+    (_) => deductApi(channelId),
+  );
+  listenCallSession(channelId); // ← add this
+}
   // ── Call status API ──────────────────────────────────────────────────────────
   Future<void> _updateCallStatus(String status) async {
     if (_channelId.isEmpty) return;
@@ -218,16 +257,16 @@ bool get remoteVideoOn => _remoteVideoOn;
   }
 
   // ── Deduction timer ──────────────────────────────────────────────────────────
-  void startDeduction({
-    required String channelId,
-    required Future<void> Function(String) deductApi,
-  }) {
-    _deductTimer?.cancel();
-    _deductTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => deductApi(channelId),
-    );
-  }
+  // void startDeduction({
+  //   required String channelId,
+  //   required Future<void> Function(String) deductApi,
+  // }) {
+  //   _deductTimer?.cancel();
+  //   _deductTimer = Timer.periodic(
+  //     const Duration(minutes: 1),
+  //     (_) => deductApi(channelId),
+  //   );
+  // }
 
   void _startDurationTimer() {
     _durationTimer?.cancel();
@@ -284,8 +323,9 @@ bool get remoteVideoOn => _remoteVideoOn;
     _isEnded     = true;
     _isMinimized = false;
     _deductTimer?.cancel();
+     _callSessionSub?.cancel();
     _durationTimer?.cancel();
-
+await ActiveCallStore.clear();
     await _updateCallStatus('end_astro');
 
     try { await _engine?.leaveChannel(); }  catch (e) { debugPrint('leaveChannel: $e'); }

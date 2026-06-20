@@ -1,11 +1,13 @@
 // lib/features/service/service/navigationManager.dart
 //
-// FIXES:
-// 1. ✅ showIncomingAudioCall / showIncomingVideoCall / showIncomingChatRequest
-//       — retry loop waits up to 5s for navigator to be ready (background/killed wake-up)
-//       — finally block ALWAYS resets the lock so it never gets stuck
-// 2. ✅ openAudioCallScreen / openVideoCallScreen / openChatScreen
-//       — same retry loop so Accept action from notification works too
+// CHANGES vs previous version:
+// 1. ✅ openAudioCallScreen  → saves ActiveCallStore on open
+// 2. ✅ openVideoCallScreen  → saves ActiveCallStore on open
+// 3. ✅ openChatScreen       → saves ActiveCallStore on open
+// 4. ✅ ActiveCallStore.clear() is called by each provider's end()/endLocalCall()
+//    (add that call there — see audio_call_provider.dart / VideoCallProvider.dart)
+//
+// Everything else is unchanged.
 
 import 'package:astrologer_app/features/service/AudioCallScreen.dart';
 import 'package:astrologer_app/features/service/ChatScreen.dart';
@@ -17,6 +19,7 @@ import 'package:astrologer_app/features/service/provider/ChatProvider.dart';
 import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart';
 import 'package:astrologer_app/features/service/provider/audio_call_provider.dart';
 import 'package:astrologer_app/service/ChatCallStatusService.dart';
+import 'package:astrologer_app/features/service/active_call_store.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -40,7 +43,7 @@ class NavigationManager {
 
   final callStatusService = CallStatusService();
 
-  // ── Helper: wait for navigator to be ready (handles background/killed wake) ──
+  // ── Helper: wait for navigator to be ready ────────────────────────────────
   Future<NavigatorState?> _waitForNavigator({int maxRetries = 25}) async {
     int retries = 0;
     while (navigatorKey.currentState == null && retries < maxRetries) {
@@ -71,7 +74,6 @@ class NavigationManager {
     _currentChatRequestId  = requestId;
 
     try {
-      // ✅ Wait for navigator — handles background/killed app wake-up
       final nav = await _waitForNavigator();
       if (nav == null) return;
 
@@ -98,7 +100,6 @@ class NavigationManager {
         );
       }
     } finally {
-      // ✅ Always reset — even if navigator was null or an error occurred
       _isShowingIncomingChat = false;
       _currentChatRequestId  = null;
     }
@@ -119,7 +120,6 @@ class NavigationManager {
     _currentVideoChannelId  = channelId;
 
     try {
-      // ✅ Wait for navigator — handles background/killed app wake-up
       final nav = await _waitForNavigator();
       if (nav == null) return;
 
@@ -146,7 +146,6 @@ class NavigationManager {
         );
       }
     } finally {
-      // ✅ Always reset — even if navigator was null or an error occurred
       _isShowingIncomingVideo = false;
       _currentVideoChannelId  = null;
     }
@@ -167,7 +166,6 @@ class NavigationManager {
     _currentAudioChannelId  = channelId;
 
     try {
-      // ✅ Wait for navigator — handles background/killed app wake-up
       final nav = await _waitForNavigator();
       if (nav == null) return;
 
@@ -194,89 +192,119 @@ class NavigationManager {
         );
       }
     } finally {
-      // ✅ Always reset — even if navigator was null or an error occurred
       _isShowingIncomingAudio = false;
       _currentAudioChannelId  = null;
     }
   }
 
   // ── Open screens ───────────────────────────────────────────────────────────
-Future<void> openVideoCallScreen({
-  required String channelId,
-  required String token,
-  String userName   = '',
-  String userAvatar = '',
-}) async {
-  final navigator = await _waitForNavigator();
-  if (navigator == null) return;
 
-  final provider = VideoCallProvider();
-  activeVideoProvider = provider;
+  Future<void> openAudioCallScreen({
+    required String channelId,
+    required String token,
+    String userName   = '',
+    String userAvatar = '',
+  }) async {
+    final navigator = await _waitForNavigator();
+    if (navigator == null) return;
 
-  navigator.push(MaterialPageRoute(
-    builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
-      value: provider,
-      child: VideoCallScreen(
-        channelId : channelId,
-        token     : token,
-        userName  : userName,
-        userAvatar: userAvatar,
+    // ✅ Persist so SplashScreen can restore if process is killed
+    await ActiveCallStore.save(
+      type      : ActiveCallType.audio,
+      channelId : channelId,
+      token     : token,
+      userName  : userName,
+      userAvatar: userAvatar,
+    );
+
+    final provider = AudioCallProvider();
+    activeAudioProvider = provider;
+
+    navigator.push(MaterialPageRoute(
+      builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
+        value: provider,
+        child: AudioCallScreen(
+          channelId  : channelId,
+          token      : token,
+          callerName : userName,
+          callerImage: userAvatar,
+        ),
       ),
-    ),
-  ));
-}
+    ));
+  }
 
-Future<void> openChatScreen({
-  required String channelId,
-  required String astroId,
-  required String userId,
-  required String userName,
-  required String userAvatar,
-}) async {
-  final navigator = await _waitForNavigator();
-  if (navigator == null) return;
+  Future<void> openVideoCallScreen({
+    required String channelId,
+    required String token,
+    String userName   = '',
+    String userAvatar = '',
+  }) async {
+    final navigator = await _waitForNavigator();
+    if (navigator == null) return;
 
-  final provider = ChatProvider();
-  activeChatProvider = provider;
+    // ✅ Persist so SplashScreen can restore if process is killed
+    await ActiveCallStore.save(
+      type      : ActiveCallType.video,
+      channelId : channelId,
+      token     : token,
+      userName  : userName,
+      userAvatar: userAvatar,
+    );
 
-  navigator.push(MaterialPageRoute(
-    builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
-      value: provider,
-      child: ChatScreen(
-        channelId : channelId,
-        astroId   : astroId,
-        userId    : userId,
-        userName  : userName,
-        userAvatar: userAvatar,
+    final provider = VideoCallProvider();
+    activeVideoProvider = provider;
+
+    navigator.push(MaterialPageRoute(
+      builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
+        value: provider,
+        child: VideoCallScreen(
+          channelId : channelId,
+          token     : token,
+          userName  : userName,
+          userAvatar: userAvatar,
+        ),
       ),
-    ),
-  ));
-}
- Future<void> openAudioCallScreen({
-  required String channelId,
-  required String token,
-  String userName   = '',
-  String userAvatar = '',
-}) async {
-  final navigator = await _waitForNavigator();   // <- was: navigatorKey.currentState
-  if (navigator == null) return;
+    ));
+  }
 
-  final provider = AudioCallProvider();
-  activeAudioProvider = provider;
-  navigator.push(MaterialPageRoute(
-    builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
-      value: provider,
-      child: AudioCallScreen(
-        channelId  : channelId,
-        token      : token,
-        callerName : userName,
-        callerImage: userAvatar,
+  Future<void> openChatScreen({
+    required String channelId,
+    required String astroId,
+    required String userId,
+    required String userName,
+    required String userAvatar,
+  }) async {
+    final navigator = await _waitForNavigator();
+    if (navigator == null) return;
+
+    // ✅ Persist so SplashScreen can restore if process is killed
+    await ActiveCallStore.save(
+      type      : ActiveCallType.chat,
+      channelId : channelId,
+      token     : '',
+      userName  : userName,
+      userAvatar: userAvatar,
+      astroId   : astroId,
+      userId    : userId,
+    );
+
+    final provider = ChatProvider();
+    activeChatProvider = provider;
+
+    navigator.push(MaterialPageRoute(
+      builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
+        value: provider,
+        child: ChatScreen(
+          channelId : channelId,
+          astroId   : astroId,
+          userId    : userId,
+          userName  : userName,
+          userAvatar: userAvatar,
+        ),
       ),
-    ),
-  ));
-}
+    ));
+  }
 
-  
   void handleChatEndFromNotification(String reason) {
     final context = navigatorKey.currentContext;
     if (context == null) {

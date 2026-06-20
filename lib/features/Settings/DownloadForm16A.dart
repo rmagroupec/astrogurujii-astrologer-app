@@ -1,3 +1,8 @@
+// lib/features/Settings/DownloadForm16A.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
@@ -12,27 +17,28 @@ class Downloadform16a extends StatefulWidget {
 class _Downloadform16aState extends State<Downloadform16a> {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text("Download Form 16A"),
-        backgroundColor: Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
-      ),
+    final c      = context.colors;
+    final isDark = context.isDark;
 
-      body: Container(
+    return Scaffold(
+      backgroundColor: c.bg,
+      appBar: AppBar(
+        // Colors inherited from AppTheme automatically
+        title: const Text('Download Form 16A'),
+      ),
+      body: Padding(
         padding: EdgeInsets.symmetric(
-          vertical: FigmaSize.h(18),
+          vertical  : FigmaSize.h(18),
           horizontal: FigmaSize.w(20),
         ),
         child: ListView.builder(
-          itemCount: 6,
+          itemCount : 6,
           shrinkWrap: true,
-          physics: AlwaysScrollableScrollPhysics(),
+          physics   : const AlwaysScrollableScrollPhysics(),
           itemBuilder: (context, index) {
-            return Container(
+            return Padding(
               padding: EdgeInsets.symmetric(
-                vertical: FigmaSize.h(2),
+                vertical  : FigmaSize.h(2),
                 horizontal: FigmaSize.w(10),
               ),
               child: Column(
@@ -41,18 +47,24 @@ class _Downloadform16aState extends State<Downloadform16a> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        "GSFPP1020J_2025-26",
+                        'GSFPP1020J_2025-26',
                         style: TextStyle(
-                          fontSize: FigmaSize.w(14),
+                          fontSize  : FigmaSize.w(14),
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF838383),
+                          color     : c.subText,
                         ),
                       ),
-                      SvgPicture.asset("assets/images/download.svg"),
+                      SvgPicture.asset(
+                        'assets/images/download.svg',
+                        colorFilter: isDark
+                            ? ColorFilter.mode(
+                                AppTheme.primaryYellow, BlendMode.srcIn)
+                            : null,
+                      ),
                     ],
                   ),
                   SizedBox(height: FigmaSize.h(14)),
-                  Divider(color: Color(0xFF000000).withOpacity(0.06)),
+                  Divider(color: c.divider),
                 ],
               ),
             );

@@ -17,6 +17,7 @@ import 'package:astrologer_app/service/notificationService.dart';
 import 'package:http/http.dart' as http;
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:flutter/foundation.dart';
+import 'package:astrologer_app/model/last_call_list_model.dart';
 
 class ApiService {
   final ApiClient _client = ApiClient();
@@ -272,4 +273,19 @@ Future<String> TermsAndCondition(dynamic data) async {
     return response.body;
   }
   
+
+
+Future<LastCallListModel?> lastCallList() async {
+  try {
+    final response = await _client.post(
+      'astrologer_api/last_call_list',
+      {},
+      isAuthRequired: true,
+    );
+    return LastCallListModel.fromJson(jsonDecode(response.body));
+  } catch (e) {
+    debugPrint('lastCallList error: $e');
+    return null;
+  }
+}
 }

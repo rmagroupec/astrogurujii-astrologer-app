@@ -1,3 +1,8 @@
+// lib/features/Settings/MainSettingScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/features/Settings/components/SettingsGridComponent.dart';
 import 'package:flutter/material.dart';
@@ -7,14 +12,20 @@ class Mainsettingscreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return  Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(title: Text("Settings"),backgroundColor: Color(0xFFFCD417).withOpacity(0.25),),
+    final c = context.colors;
 
-      body: Container(
-        padding: EdgeInsets.symmetric(vertical: FigmaSize.h(18), horizontal: FigmaSize.w(20)),
-        child: SettingsIconGrid(),
-
+    return Scaffold(
+      backgroundColor: c.bg,
+      appBar: AppBar(
+        // Colors inherited from AppTheme automatically
+        title: const Text('Settings'),
+      ),
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          vertical  : FigmaSize.h(18),
+          horizontal: FigmaSize.w(20),
+        ),
+        child: const SettingsIconGrid(),
       ),
     );
   }

@@ -10,6 +10,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'package:http_parser/http_parser.dart';
 
 import 'package:astrologer_app/features/service/model/chat_message.dart';
 import 'package:astrologer_app/features/service/service/ChatService.dart';
@@ -17,8 +18,11 @@ import 'package:astrologer_app/service/ChatCallStatusService.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:astrologer_app/features/service/active_call_store.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class ChatProvider extends ChangeNotifier {
   final ChatService _chatService = ChatService();
@@ -84,7 +88,29 @@ class ChatProvider extends ChangeNotifier {
 
   // ── Firebase subscription ───────────────────────────────────────────────────
   StreamSubscription? _messageSub;
+StreamSubscription<DatabaseEvent>? _callSessionSub;
+static const _dbUrl =
+    'https://astrogurujii-production-default-rtdb.firebaseio.com/';
 
+void listenCallSession(String channelId) {
+  _callSessionSub?.cancel();
+  final ref = FirebaseDatabase.instanceFor(
+    app        : Firebase.app(),
+    databaseURL: _dbUrl,
+  ).ref().child('CallSession').child(channelId);
+
+  _callSessionSub = ref.onValue.listen((event) {
+    final data = event.snapshot.value;
+    if (data == null) return;
+    final map    = Map<String, dynamic>.from(data as Map);
+    final status = (map['status'] ?? '') as String;
+
+    if (['end_user', 'wallet_empty'].contains(status)) {
+      // User ran out of wallet or ended from their side
+      handleChatEnded('Chat ended by user');
+    }
+  });
+}
   // ── INITIALIZE ──────────────────────────────────────────────────────────────
   void initializeChat(
     String groupId,
@@ -105,7 +131,7 @@ class ChatProvider extends ChangeNotifier {
     callerImage = userAvatar;
     _isEnded    = false;
     _chatEnded  = false;
-
+listenCallSession(groupId); 
     _listenMessages();
     _startSessionTimer();
   }
@@ -232,27 +258,91 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // ── Upload file ─────────────────────────────────────────────────────────────
-  Future<String?> uploadFile(File file, {required bool isAudio}) async {
+ static const _audioFieldName = 'image';  // ← adjust if needed
+  static const _imageFieldName = 'file';        // ← adjust if needed
+ 
+ Future<String?> uploadFile(File file, {required bool isAudio}) async {
     _isUploading = true;
     _safeNotify();
+ 
     try {
       final token = await _storage.read(key: 'auth_token') ?? '';
-      final endpoint = isAudio ? 'upload_mp3_file' : 'upload_a_file';
-      final uri = Uri.parse('$_baseUrl/astrologer_api/$endpoint');
-
+      if (token.isEmpty) {
+        debugPrint('❌ uploadFile: no auth token');
+        return null;
+      }
+ 
+      final endpoint = isAudio ? 'upload_mp3_file' : 'upload_a_image';
+      final uri      = Uri.parse('$_baseUrl/astrologer_api/$endpoint');
+ 
+      // ── MIME type ─────────────────────────────────────────────────────────
+      final ext = file.path.split('.').last.toLowerCase();
+      final MediaType mimeType;
+      if (isAudio) {
+        mimeType = switch (ext) {
+          'mp3'  => MediaType('audio', 'mpeg'),
+          'ogg'  => MediaType('audio', 'ogg'),
+          'wav'  => MediaType('audio', 'wav'),
+          'webm' => MediaType('audio', 'webm'),
+          _      => MediaType('audio', 'mp4'),  // m4a / aac
+        };
+      } else {
+        mimeType = switch (ext) {
+          'png'  => MediaType('image', 'png'),
+          'gif'  => MediaType('image', 'gif'),
+          'webp' => MediaType('image', 'webp'),
+          _      => MediaType('image', 'jpeg'),
+        };
+      }
+ 
+      debugPrint('📤 uploadFile → $endpoint  mime=${mimeType.type}/${mimeType.subtype}');
+ 
+      // ✅ Field name is "image" for BOTH endpoints (confirmed from server code)
       final request = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer $token'
+        ..headers['Accept']        = 'application/json'
         ..files.add(await http.MultipartFile.fromPath(
-          isAudio ? 'audio' : 'file', file.path));
-
-      final streamed = await request.send();
+          isAudio ? 'image' : 'file',        // ✅ server: mp3Upload.fields([{ name: "image" }])
+          file.path,
+          contentType: mimeType,
+        ));
+ 
+      final streamed = await request.send().timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
-      final data     = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (data['result'] == true || data['status'] == true) {
-        final url = (data['url'] ?? data['file']) as String?;
-        return url;
+ 
+      debugPrint('📥 status=${response.statusCode} body=${response.body.length > 300 ? response.body.substring(0, 300) : response.body}');
+ 
+      final ct = response.headers['content-type'] ?? '';
+      if (!ct.contains('json')) {
+        debugPrint('❌ uploadFile: non-JSON response');
+        return null;
       }
+ 
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('❌ uploadFile: HTTP ${response.statusCode}');
+        return null;
+      }
+ 
+      final Map<String, dynamic> data;
+      try {
+        data = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (_) {
+        debugPrint('❌ uploadFile: JSON parse failed');
+        return null;
+      }
+ 
+      if (data['status'] == true) {
+        // ✅ server returns "file_img" not "url" or "file"
+        final url = data['file_img'] as String?;
+        debugPrint('✅ uploadFile success: $url');
+        return (url != null && url.isNotEmpty) ? url : null;
+      }
+ 
+      debugPrint('❌ uploadFile: server failure — $data');
+      return null;
+ 
+    } on TimeoutException {
+      debugPrint('❌ uploadFile: timed out');
       return null;
     } catch (e, st) {
       debugPrint('❌ Upload error: $e\n$st');
@@ -262,12 +352,15 @@ class ChatProvider extends ChangeNotifier {
       _safeNotify();
     }
   }
+ 
 
   // ── End chat ────────────────────────────────────────────────────────────────
   Future<void> endChatApi(String channelId) async {
     if (_isEnded) return;
     _isEnded    = true;
     _isMinimized = false;
+    await ActiveCallStore.clear();
+    _callSessionSub?.cancel();
     _stopSessionTimer();
     await callStatusService.updateCallStatus(
         channelId: channelId, status: 'end_astro');
@@ -314,6 +407,7 @@ class ChatProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _callSessionSub?.cancel();
     _stopSessionTimer();
     _typingDebounce?.cancel();
     _typingSub?.cancel();

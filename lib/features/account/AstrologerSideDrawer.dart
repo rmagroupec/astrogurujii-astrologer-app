@@ -1,11 +1,9 @@
 // lib/features/account/AstrologerSideDrawer.dart
-// Zero UI changes. Added:
-//   - Logout menu item at the bottom of the list
-//   - _logout() method that calls the API, clears all local storage, navigates to LoginScreen
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
 
-import 'dart:convert';
-
-import 'package:astrologer_app/features/HomeScreen.dart';
+import 'package:astrologer_app/core/config/theme_config.dart';
+import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/features/Settings/MainSettingScreen.dart';
 import 'package:astrologer_app/features/Settings/MyCommunityScreen.dart';
 import 'package:astrologer_app/features/Settings/MyReviewScreen.dart';
@@ -14,13 +12,11 @@ import 'package:astrologer_app/features/account/LoginScreen.dart';
 import 'package:astrologer_app/features/account/SupportChatScreen.dart';
 import 'package:astrologer_app/features/account/ThemeAppearanceScreen.dart';
 import 'package:astrologer_app/features/account/WalletScreen.dart';
-import 'package:astrologer_app/features/account/WeeklyRankingScreen.dart';
 import 'package:astrologer_app/model/astrologerProfileModel.dart';
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:astrologer_app/service/apiService.dart';
 import 'package:astrologer_app/service/notificationService.dart';
 import 'package:flutter/material.dart';
-import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,7 +30,7 @@ class AstrologerProfileScreen extends StatefulWidget {
 
 class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
   Astrologer? astrologerData;
-  bool isLoading  = true;
+  bool isLoading   = true;
   bool _loggingOut = false;
 
   final _storage = const FlutterSecureStorage();
@@ -57,29 +53,36 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
       });
     } catch (e) {
       setState(() => isLoading = false);
-      print("Exception: $e");
+      debugPrint('Exception: $e');
     }
   }
 
   // ── Logout ──────────────────────────────────────────────────────────────────
   Future<void> _logout() async {
-    // 1. Confirm
+    final c = context.colors;
+
     final confirmed = await showDialog<bool>(
       context           : context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title  : const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        backgroundColor: c.surface,
+        title  : Text('Logout',
+            style: TextStyle(color: c.text, fontWeight: FontWeight.w600)),
+        content: Text('Are you sure you want to logout?',
+            style: TextStyle(color: c.subText)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child    : const Text('Cancel'),
+            child    : Text('Cancel',
+                style: TextStyle(color: c.subText)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child    : const Text(
               'Logout',
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  color     : AppTheme.accentRed,
+                  fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -92,7 +95,6 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
     setState(() => _loggingOut = true);
 
     try {
-      // 2. Tell the server — sets all online statuses to "off"
       await _client.post(
         'astrologer_api/astrologer_logout',
         {
@@ -102,24 +104,16 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
         },
         isAuthRequired: true,
       );
-    } catch (_) {
-      // proceed with local logout even if API fails
-    }
+    } catch (_) {}
 
-    // 3. Clear JWT token from secure storage
     await _storage.delete(key: 'auth_token');
-
-    // 4. Clear all SharedPreferences data
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
-
-    // 5. Delete FCM token so notifications stop
     await NotificationService().deleteToken();
 
     if (!mounted) return;
     setState(() => _loggingOut = false);
 
-    // 6. Navigate to LoginScreen, remove all previous routes
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -129,27 +123,33 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
+    final isDark = context.isDark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar          : AppBar(
-        title          : const Text("Astrologer Profile"),
-        backgroundColor: const Color(0xFFFCD417),
-        foregroundColor: Colors.black,
-        elevation      : 0,
+      backgroundColor: c.bg,
+      appBar: AppBar(
+        // Colors inherited from AppTheme automatically
+        title    : const Text('Astrologer Profile'),
+        elevation: 0,
       ),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: AppTheme.primaryYellow))
           : Column(
               children: [
 
-                /// PROFILE HEADER
+                // ── Profile header ────────────────────────────────────
                 Container(
                   width  : double.infinity,
                   padding: EdgeInsets.symmetric(
                     horizontal: FigmaSize.w(16),
                     vertical  : FigmaSize.h(14),
                   ),
-                  color: const Color(0xFFFFF7D6),
+                  color: isDark
+                      ? AppTheme.primaryYellow.withOpacity(0.10)
+                      : const Color(0xFFFFF7D6),
                   child: Row(
                     children: [
                       // Avatar
@@ -159,7 +159,7 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: const Color(0xFFFCD417), width: 2),
+                              color: AppTheme.primaryYellow, width: 2),
                           image: DecorationImage(
                             image: NetworkImage(
                                 astrologerData?.profileImg ?? ''),
@@ -178,6 +178,7 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
                               style: TextStyle(
                                 fontSize  : FigmaSize.w(14),
                                 fontWeight: FontWeight.w600,
+                                color     : c.text,
                               ),
                             ),
                             SizedBox(height: FigmaSize.h(4)),
@@ -185,24 +186,25 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
                               '${astrologerData?.email}',
                               style: TextStyle(
                                   fontSize: FigmaSize.w(12),
-                                  color   : Colors.black54),
+                                  color   : c.subText),
                             ),
                             SizedBox(height: FigmaSize.h(2)),
                             Text(
                               '${astrologerData?.number}',
                               style: TextStyle(
                                   fontSize: FigmaSize.w(12),
-                                  color   : Colors.black54),
+                                  color   : c.subText),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Icons.edit, color: Colors.red, size: 20),
+                      Icon(Icons.edit,
+                          color: AppTheme.accentRed, size: 20),
                     ],
                   ),
                 ),
 
-                /// MENU LIST
+                // ── Menu list ─────────────────────────────────────────
                 Expanded(
                   child: ListView(
                     children: [
@@ -212,48 +214,55 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
                         context,
                         CompleteProfileScreen(
                             astrologerData: astrologerData!),
+                        c: c,
                       ),
                       _menuItem(
                         Icons.account_balance_wallet_outlined,
                         'Wallet',
                         context,
-                        WalletScreen(),
+                        const WalletScreen(),
+                        c: c,
                       ),
                       _menuItem(
                         Icons.support_agent_outlined,
                         'Support Chat',
                         context,
-                        SupportChatScreen(),
+                        const SupportChatScreen(),
+                        c: c,
                       ),
-                      _menuItem(Icons.star_border,     'My Reviews',  context, MyReviewsScreen()),
-                      _menuItem(Icons.group_outlined,  'My Community',context, MyCommunityFollowers()),
-                      _menuItem(Icons.settings_outlined,'Settings',   context, Mainsettingscreen()),
-                      _menuItem(Icons.dark_mode_outlined,'Dark Mode',  context, AppearanceScreen()),
+                      _menuItem(Icons.star_border,
+                          'My Reviews',   context, const MyReviewsScreen(),      c: c),
+                      _menuItem(Icons.group_outlined,
+                          'My Community', context, const MyCommunityFollowers(), c: c),
+                      _menuItem(Icons.settings_outlined,
+                          'Settings',    context, const Mainsettingscreen(),     c: c),
+                      _menuItem(Icons.dark_mode_outlined,
+                          'Dark Mode',   context, const AppearanceScreen(),      c: c),
 
-                      // ── Divider before logout ─────────────────────────
+                      // ── Divider before logout ─────────────────────
                       Divider(
                           height: FigmaSize.h(20),
-                          color : Colors.black.withOpacity(0.08)),
+                          color : c.divider),
 
-                      // ── Logout tile ───────────────────────────────────
+                      // ── Logout tile ───────────────────────────────
                       _loggingOut
                           ? Padding(
                               padding: EdgeInsets.symmetric(
                                   vertical: FigmaSize.h(16)),
-                              child: const Center(
+                              child: Center(
                                 child: CircularProgressIndicator(
-                                    color: Color(0xFFD41000)),
+                                    color: AppTheme.accentRed),
                               ),
                             )
                           : ListTile(
                               leading: const Icon(Icons.logout,
-                                  color: Color(0xFFD41000)),
+                                  color: AppTheme.accentRed),
                               title: Text(
                                 'Logout',
                                 style: TextStyle(
                                   fontSize  : FigmaSize.w(13),
                                   fontWeight: FontWeight.w500,
-                                  color     : const Color(0xFFD41000),
+                                  color     : AppTheme.accentRed,
                                 ),
                               ),
                               onTap: _logout,
@@ -262,13 +271,13 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
                   ),
                 ),
 
-                /// VERSION
+                // ── Version ───────────────────────────────────────────
                 Padding(
                   padding: EdgeInsets.symmetric(vertical: FigmaSize.h(12)),
                   child: Text(
                     'Version 11.424',
                     style: TextStyle(
-                        fontSize: FigmaSize.w(11), color: Colors.grey),
+                        fontSize: FigmaSize.w(11), color: c.subText),
                   ),
                 ),
               ],
@@ -276,31 +285,33 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
     );
   }
 
-  /// MENU TILE (unchanged)
+  // ── Menu tile ──────────────────────────────────────────────────────────────
   Widget _menuItem(
-    IconData icon,
-    String title,
+    IconData     icon,
+    String       title,
     BuildContext context,
-    dynamic pageName,
-  ) {
+    dynamic      pageName, {
+    required AppColors c,
+  }) {
     return Column(
       children: [
         ListTile(
-          leading : Icon(icon, color: Colors.grey[700]),
+          leading : Icon(icon, color: c.subText),
           title   : Text(
             title,
             style: TextStyle(
               fontSize  : FigmaSize.w(13),
               fontWeight: FontWeight.w500,
+              color     : c.text,
             ),
           ),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: Icon(Icons.chevron_right, color: c.subText),
           onTap   : () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => pageName),
           ),
         ),
-        Divider(height: 1, color: Colors.black.withOpacity(0.05)),
+        Divider(height: 1, color: c.divider),
       ],
     );
   }

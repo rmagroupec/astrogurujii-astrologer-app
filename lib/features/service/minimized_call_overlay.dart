@@ -111,6 +111,7 @@ class _FloatingCallBubbleState extends State<_FloatingCallBubble>
     super.dispose();
   }
 
+  
   void _expandCall(AudioCallProvider provider) {
     provider.expand();
     NavigationManager().navigatorKey.currentState?.push(
@@ -122,6 +123,7 @@ class _FloatingCallBubbleState extends State<_FloatingCallBubble>
             token      : '',          // engine already running
             callerName : provider.callerName,
             callerImage: provider.callerImage,
+            resumed    : true,        // ✅ FIX: re-wire callback, skip re-init
           ),
         ),
       ),

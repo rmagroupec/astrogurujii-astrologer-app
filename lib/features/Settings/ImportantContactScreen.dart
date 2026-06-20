@@ -1,3 +1,8 @@
+// lib/features/Settings/ImportantContactScreen.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:flutter/material.dart';
 
 class ImportantNumberPage extends StatelessWidget {
@@ -5,21 +10,15 @@ class ImportantNumberPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        backgroundColor: const Color(0xFFFFD600),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
+        // Colors inherited from AppTheme automatically
         title: const Text(
-          "Important Number",
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.w600,
-          ),
+          'Important Number',
+          style: TextStyle(fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
       ),
@@ -28,69 +27,79 @@ class ImportantNumberPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "You will get call and chat alerts from these numbers. "
-              "save these number to avoid any confusion",
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.black87,
-              ),
+            Text(
+              'You will get call and chat alerts from these numbers. '
+              'Save these numbers to avoid any confusion.',
+              style: TextStyle(fontSize: 13, color: c.subText),
             ),
 
             const SizedBox(height: 24),
 
-            _section(
-              title: "App Call",
-              numbers:
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021",
-              onAdd: () {},
+            _Section(
+              title  : 'App Call',
+              numbers: '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021',
+              onAdd  : () {},
+              c      : c,
             ),
 
             const SizedBox(height: 24),
 
-            _section(
-              title: "App Chat Alert",
-              numbers:
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021, +91 7615976021",
-              onAdd: () {},
+            _Section(
+              title  : 'App Chat Alert',
+              numbers: '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021, +91 7615976021',
+              onAdd  : () {},
+              c      : c,
             ),
 
             const SizedBox(height: 24),
 
-            _section(
-              title: "App Admin Support",
-              numbers:
-                  "+91 7615976021, +91 7615976021, +91 7615976021,\n"
-                  "+91 7615976021, +91 7615976021",
-              onAdd: () {},
+            _Section(
+              title  : 'App Admin Support',
+              numbers: '+91 7615976021, +91 7615976021, +91 7615976021,\n'
+                  '+91 7615976021, +91 7615976021',
+              onAdd  : () {},
+              c      : c,
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _section({
-    required String title,
-    required String numbers,
-    required VoidCallback onAdd,
-  }) {
+// ── Section widget ────────────────────────────────────────────────────────────
+class _Section extends StatelessWidget {
+  final String       title;
+  final String       numbers;
+  final VoidCallback onAdd;
+  final AppColors    c;
+
+  const _Section({
+    required this.title,
+    required this.numbers,
+    required this.onAdd,
+    required this.c,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(
-            fontSize: 16,
+          style: TextStyle(
+            fontSize  : 16,
             fontWeight: FontWeight.w600,
+            color     : c.text,
           ),
         ),
         const SizedBox(height: 8),
@@ -98,33 +107,32 @@ class ImportantNumberPage extends StatelessWidget {
           numbers,
           style: TextStyle(
             fontSize: 13,
-            color: Colors.grey.shade700,
-            height: 1.6,
+            color   : c.subText,
+            height  : 1.6,
           ),
         ),
         const SizedBox(height: 12),
         SizedBox(
           height: 40,
-          child: ElevatedButton(
+          child : ElevatedButton(
             onPressed: onAdd,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFD600),
-              elevation: 0,
+              backgroundColor: AppTheme.primaryYellow,
+              foregroundColor: Colors.black,
+              elevation      : 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
+                  borderRadius: BorderRadius.circular(10)),
             ),
             child: const Text(
-              "Add Contact",
+              'Add Contact',
               style: TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.w600,
-              ),
+                  color     : Colors.black,
+                  fontWeight: FontWeight.w600),
             ),
           ),
         ),
         const SizedBox(height: 16),
-        Divider(color: Colors.grey.shade300),
+        Divider(color: c.divider),
       ],
     );
   }

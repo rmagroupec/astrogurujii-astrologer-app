@@ -1,3 +1,8 @@
+// lib/features/Settings/BankDetails.dart
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes ────────────────────────────────────────────────────────
+
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/core/widgets/ThemeGradientButton.dart';
 import 'package:astrologer_app/features/Settings/ChangeBankDetailsScreen.dart';
@@ -14,7 +19,7 @@ class Bankdetails extends StatefulWidget {
 }
 
 class _BankdetailsState extends State<Bankdetails> {
-  bool isLoading = true;
+  bool                 isLoading = true;
   List<BankAccRequest>? data;
 
   @override
@@ -28,83 +33,98 @@ class _BankdetailsState extends State<Bankdetails> {
     try {
       final response = await ApiService().AstroBankAccountList();
       setState(() {
-        data = response.bankAccRequest ?? [];
+        data      = response.bankAccRequest ?? [];
         isLoading = false;
       });
     } catch (e) {
-      setState(() {
-        data = [];
-        isLoading = false;
-      });
+      setState(() { data = []; isLoading = false; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title: Text("Bank Details"),
-        backgroundColor: Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
+        // Colors inherited from AppTheme automatically
+        title: const Text('Bank Details'),
       ),
       body: isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: AppTheme.primaryYellow))
           : Padding(
               padding: EdgeInsetsGeometry.symmetric(
                 horizontal: FigmaSize.w(27),
-                vertical: FigmaSize.h(11),
+                vertical  : FigmaSize.h(11),
               ),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: EdgeInsets.all(FigmaSize.w(0)),
-                    child: Text(
-                      '''Admin will take upto 7 days to complete this request . kindly do not follow up with customer support before 7 days.''',
-                      style: TextStyle(
-                        fontSize: FigmaSize.w(11),
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black,
-                      ),
+
+                  // ── Info text ──────────────────────────────────────────
+                  Text(
+                    'Admin will take upto 7 days to complete this request. '
+                    'Kindly do not follow up with customer support before 7 days.',
+                    style: TextStyle(
+                      fontSize  : FigmaSize.w(11),
+                      fontWeight: FontWeight.w500,
+                      color     : c.subText,
                     ),
                   ),
-                  Divider(),
-                  // ── Safe: show empty state when list is empty ──────────────
+                  Divider(color: c.divider),
+
+                  // ── Empty state ────────────────────────────────────────
                   if (data == null || data!.isEmpty)
                     Padding(
-                      padding: EdgeInsets.symmetric(vertical: FigmaSize.h(40)),
+                      padding: EdgeInsets.symmetric(
+                          vertical: FigmaSize.h(40)),
                       child: Center(
-                        child: Text(
-                          "No bank details found",
-                          style: TextStyle(
-                            fontSize: FigmaSize.w(13),
-                            color: Colors.grey,
-                          ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.account_balance_outlined,
+                                size: 48,
+                                color: c.subText.withOpacity(0.35)),
+                            SizedBox(height: FigmaSize.h(12)),
+                            Text(
+                              'No bank details found',
+                              style: TextStyle(
+                                  fontSize: FigmaSize.w(13),
+                                  color   : c.subText),
+                            ),
+                          ],
                         ),
                       ),
                     )
                   else
+                    // ── Bank details list ────────────────────────────────
                     ListView.builder(
                       shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      itemCount: data!.length,
+                      physics   : const NeverScrollableScrollPhysics(),
+                      itemCount : data!.length,
                       itemBuilder: (context, index) {
+                        final item = data![index];
                         return Column(
-                          mainAxisAlignment: MainAxisAlignment.start,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _infoRow("Bank Account Name",   data![index].accountHolderName.toString()),
-                            _infoRow("Bank Account Number", data![index].accountNo.toString()),
-                            _infoRow("Bank Name",           data![index].bank.toString()),
-                            _infoRow("IFSC Code",           data![index].ifsc.toString()),
-                            _infoRow("Creation Time",       data![index].createdAt.toString()),
-                            _infoRow("Status",              data![index].status.toString()),
+                            _InfoRow(label: 'Bank Account Name',
+                                value: item.accountHolderName.toString(), c: c),
+                            _InfoRow(label: 'Bank Account Number',
+                                value: item.accountNo.toString(), c: c),
+                            _InfoRow(label: 'Bank Name',
+                                value: item.bank.toString(), c: c),
+                            _InfoRow(label: 'IFSC Code',
+                                value: item.ifsc.toString(), c: c),
+                            _InfoRow(label: 'Creation Time',
+                                value: item.createdAt.toString(), c: c),
+                            _InfoRow(label: 'Status',
+                                value: item.status.toString(), c: c),
                             SizedBox(height: FigmaSize.h(10)),
-                            SvgPicture.asset("assets/images/image.svg"),
+                            SvgPicture.asset('assets/images/image.svg'),
                             SizedBox(height: FigmaSize.h(17)),
-                            Divider(),
+                            Divider(color: c.divider),
                           ],
                         );
                       },
@@ -112,53 +132,66 @@ class _BankdetailsState extends State<Bankdetails> {
                 ],
               ),
             ),
+
+      // ── Bottom button ───────────────────────────────────────────────────
       bottomNavigationBar: GradientButton(
-        title: "+ Change bank details",
-        onTap: () async {
-          // ── Reload list when returning from ChangeBankDetailsScreen ───────
+        title: '+ Change bank details',
+        onTap : () async {
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => const ChangeBankDetailsScreen(),
-            ),
+                builder: (_) => const ChangeBankDetailsScreen()),
           );
           _loadData();
         },
       ),
     );
   }
+}
 
-  Widget _infoRow(String keyText, String valueText) {
+// ── Info row ──────────────────────────────────────────────────────────────────
+class _InfoRow extends StatelessWidget {
+  final String    label;
+  final String    value;
+  final AppColors c;
+
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    required this.c,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          child: Text(
-            "$keyText",
-            style: TextStyle(
-              fontSize: FigmaSize.w(14),
-              fontWeight: FontWeight.w700,
-              color: Colors.black,
-              height: 16 / FigmaSize.w(12),
-            ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize  : FigmaSize.w(14),
+            fontWeight: FontWeight.w700,
+            color     : c.text,
+            height    : 16 / FigmaSize.w(12),
           ),
         ),
         Text(
-          ":  ",
+          ':  ',
           style: TextStyle(
-            fontSize: FigmaSize.w(14),
+            fontSize  : FigmaSize.w(14),
             fontWeight: FontWeight.w700,
-            height: 16 / FigmaSize.w(12),
+            color     : c.subText,
+            height    : 16 / FigmaSize.w(12),
           ),
         ),
         Expanded(
           child: Text(
-            valueText,
+            value,
             style: TextStyle(
-              fontSize: FigmaSize.w(14),
+              fontSize  : FigmaSize.w(14),
               fontWeight: FontWeight.w500,
-              color: Colors.black,
-              height: 16 / FigmaSize.w(12),
+              color     : c.subText,
+              height    : 16 / FigmaSize.w(12),
             ),
           ),
         ),

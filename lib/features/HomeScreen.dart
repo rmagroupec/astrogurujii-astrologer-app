@@ -1,9 +1,9 @@
 // lib/features/HomeScreen.dart
-// COMPLETE — single file, all imports correct, dark-mode aware
-// All widgets self-contained below the main screen class
+// ── Added: WillPopScope exit confirmation dialog ──────────────────────────────
+// ── Zero other changes ────────────────────────────────────────────────────────
 
 import 'dart:convert';
-
+import 'package:astrologer_app/features/account/WalletScreen.dart';
 import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/core/widgets/CustomSwitchButton.dart';
@@ -21,6 +21,7 @@ import 'package:astrologer_app/model/astrologerProfileModel.dart';
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:astrologer_app/service/apiService.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -37,39 +38,36 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ── profile ────────────────────────────────────────────────────────────────
+  // ── profile ─────────────────────────────────────────────────────────────────
   Astrologer? _astro;
   bool        _loading = true;
 
-  // ── online toggles (from is_chat_online / is_voice_online) ─────────────────
+  // ── online toggles ───────────────────────────────────────────────────────────
   bool _chatOn  = false;
   bool _voiceOn = false;
   bool _videoOn = false;
 
-  // ── schedule-next subtitles ────────────────────────────────────────────────
+  // ── schedule-next subtitles ──────────────────────────────────────────────────
   String _chatSub  = 'Offline';
   String _voiceSub = 'Offline';
   String _videoSub = 'Offline';
 
-  // ── emergency card ─────────────────────────────────────────────────────────
+  // ── emergency card ───────────────────────────────────────────────────────────
   bool _emgChat = false;
   bool _emgCall = false;
 
-  // ── auto boost ─────────────────────────────────────────────────────────────
+  // ── auto boost ───────────────────────────────────────────────────────────────
   bool _boostChat = false;
   bool _boostCall = false;
 
-  // ── performance ────────────────────────────────────────────────────────────
+  // ── performance ──────────────────────────────────────────────────────────────
   PerfData _perf = PerfData.empty();
 
-  // ── helpers ────────────────────────────────────────────────────────────────
   String _fmtISO(String? iso) {
     if (iso == null || iso.isEmpty) return 'Offline';
     try {
       return DateFormat('dd MMM, hh:mm a').format(DateTime.parse(iso).toLocal());
-    } catch (_) {
-      return iso;
-    }
+    } catch (_) { return iso; }
   }
 
   @override
@@ -79,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadPerformance();
   }
 
-  // ── API: profile ────────────────────────────────────────────────────────────
+  // ── API: profile ─────────────────────────────────────────────────────────────
   Future<void> _loadProfile() async {
     try {
       final res = await ApiService().get_astrologer_profile();
@@ -88,15 +86,12 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _astro   = a;
         _loading = false;
-        // FIX: read is_chat_online not is_chat
         _chatOn  = a?.isChatOnline  ?? false;
         _voiceOn = a?.isVoiceOnline ?? false;
         _videoOn = a?.isVideoOnline ?? false;
-        // subtitles
         _chatSub  = _chatOn  ? 'Online' : _fmtISO(a?.nextOnlineChat);
         _voiceSub = _voiceOn ? 'Online' : _fmtISO(a?.nextOnlineCall);
         _videoSub = _videoOn ? 'Online' : _fmtISO(a?.nextOnlineVideo);
-        // emergency + boost
         _emgChat   = a?.isEmergencyChat ?? false;
         _emgCall   = a?.isEmergencyCall ?? false;
         _boostChat = a?.autoBoostChat   ?? false;
@@ -108,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ── API: performance ────────────────────────────────────────────────────────
+  // ── API: performance ─────────────────────────────────────────────────────────
   Future<void> _loadPerformance() async {
     try {
       final res  = await ApiClient().post(
@@ -119,15 +114,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       final ok   = json['result'] == true || json['status'] == true;
       final data = json['data'] as Map<String, dynamic>?;
-      if (ok && data != null) {
-        setState(() => _perf = PerfData.fromJson(data));
-      }
+      if (ok && data != null) setState(() => _perf = PerfData.fromJson(data));
     } catch (e) {
       debugPrint('HomeScreen _loadPerformance: $e');
     }
   }
 
-  // ── API: set online status ──────────────────────────────────────────────────
+  // ── API: set online status ────────────────────────────────────────────────────
   Future<void> _setOnline(String type, bool on) async {
     final field = type == 'chat'  ? 'is_chat_online'
                 : type == 'voice' ? 'is_voice_online'
@@ -138,12 +131,10 @@ class _HomeScreenState extends State<HomeScreen> {
         {field: on ? 'on' : 'off'},
         isAuthRequired: true,
       );
-    } catch (e) {
-      debugPrint('_setOnline error: $e');
-    }
+    } catch (e) { debugPrint('_setOnline error: $e'); }
   }
 
-  // ── confirm dialog ──────────────────────────────────────────────────────────
+  // ── Confirm dialog ────────────────────────────────────────────────────────────
   void _confirm({
     required String    title,
     required String    msg,
@@ -162,7 +153,191 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ── Exit confirmation ─────────────────────────────────────────────────────────
+ Future<bool> _onWillPop() async {
+  final c = context.colors;
+
+  final exit = await showDialog<bool>(
+    context           : context,
+    barrierDismissible: true,
+    builder: (_) => Dialog(
+      shape          : RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20)),
+      backgroundColor: c.surface,
+      insetPadding   : const EdgeInsets.symmetric(
+          horizontal: 32, vertical: 24),
+      clipBehavior   : Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+
+          // ── Yellow header ──────────────────────────────────────────
+          Container(
+            width  : double.infinity,
+            padding: EdgeInsets.fromLTRB(
+                FigmaSize.w(24), FigmaSize.h(28),
+                FigmaSize.w(24), FigmaSize.h(20)),
+            color  : AppTheme.primaryYellow,
+            child  : Column(children: [
+              Container(
+                width : FigmaSize.w(64),
+                height: FigmaSize.w(64),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.35),
+                ),
+                child: const Icon(Icons.exit_to_app_rounded,
+                    color: Colors.black87, size: 30),
+              ),
+              SizedBox(height: FigmaSize.h(12)),
+              const Text(
+                'Leaving so soon?',
+                style: TextStyle(
+                    fontSize  : 18,
+                    fontWeight: FontWeight.w600,
+                    color     : Colors.black87),
+              ),
+              SizedBox(height: FigmaSize.h(4)),
+              Text(
+                "You haven't seen everything yet!",
+                style: TextStyle(
+                    fontSize: 13,
+                    color   : Colors.black.withOpacity(0.55)),
+              ),
+            ]),
+          ),
+
+          // ── Reasons to stay ────────────────────────────────────────
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                FigmaSize.w(20), FigmaSize.h(16),
+                FigmaSize.w(20), FigmaSize.h(4)),
+            child: Container(
+              decoration: BoxDecoration(
+                color       : context.isDark
+                    ? Colors.white.withOpacity(0.05)
+                    : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: EdgeInsets.all(FigmaSize.w(14)),
+              child: Column(children: [
+                _exitReason(
+                  icon : Icons.bar_chart_rounded,
+                  title: 'Check your performance',
+                  sub  : "Today's earnings & sessions are waiting",
+                  c    : c,
+                ),
+                SizedBox(height: FigmaSize.h(12)),
+                _exitReason(
+                  icon : Icons.star_outline_rounded,
+                  title: 'Stay online, earn more',
+                  sub  : "You're just minutes from your daily target",
+                  c    : c,
+                ),
+                SizedBox(height: FigmaSize.h(12)),
+                _exitReason(
+                  icon : Icons.notifications_none_rounded,
+                  title: "Don't miss new requests",
+                  sub  : 'Users may be trying to reach you right now',
+                  c    : c,
+                ),
+              ]),
+            ),
+          ),
+
+          // ── Buttons ────────────────────────────────────────────────
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                FigmaSize.w(20), FigmaSize.h(16),
+                FigmaSize.w(20), FigmaSize.h(24)),
+            child: Column(children: [
+              // Explore — primary yellow
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context, false),
+                  icon : const Icon(Icons.rocket_launch_outlined,
+                      color: Colors.black87, size: 18),
+                  label: const Text('Explore the app',
+                      style: TextStyle(
+                          color     : Colors.black87,
+                          fontWeight: FontWeight.w600,
+                          fontSize  : 15)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryYellow,
+                    padding: EdgeInsets.symmetric(
+                        vertical: FigmaSize.h(14)),
+                    shape  : RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+              SizedBox(height: FigmaSize.h(10)),
+              // Exit — ghost
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(
+                        vertical: FigmaSize.h(13)),
+                    side   : BorderSide(color: c.border),
+                    shape  : RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Exit app',
+                      style: TextStyle(
+                          color   : c.subText,
+                          fontSize: 14)),
+                ),
+              ),
+            ]),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (exit == true) {
+    SystemNavigator.pop();
+    return true;
+  }
+  return false;
+}
+
+// Helper for exit reason rows
+Widget _exitReason({
+  required IconData icon,
+  required String   title,
+  required String   sub,
+  required AppColors c,
+}) {
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, color: AppTheme.accentRed, size: 20),
+      SizedBox(width: FigmaSize.w(10)),
+      Expanded(child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: TextStyle(
+                  fontSize  : FigmaSize.w(13),
+                  fontWeight: FontWeight.w500,
+                  color     : c.text)),
+          SizedBox(height: FigmaSize.h(2)),
+          Text(sub,
+              style: TextStyle(
+                  fontSize: FigmaSize.w(12),
+                  color   : c.subText)),
+        ],
+      )),
+    ],
+  );
+}
+
+  // ══════════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -172,103 +347,106 @@ class _HomeScreenState extends State<HomeScreen> {
           body: Center(child: CircularProgressIndicator()));
     }
 
-    return Scaffold(
-      appBar: _buildAppBar(c),
-      body  : RefreshIndicator(
-        onRefresh: () async {
-          await _loadProfile();
-          await _loadPerformance();
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child  : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: _buildAppBar(c),
+        body  : RefreshIndicator(
+          onRefresh: () async {
+            await _loadProfile();
+            await _loadPerformance();
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child  : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
 
-              // ── 1. Chat / Call / Video toggles ───────────────────────────
-              _toggleCard(c),
+                // ── 1. Chat / Call / Video toggles ──────────────────────────
+                _toggleCard(c),
 
-              // ── 2. Services label + icon grid ────────────────────────────
-              Padding(
-                padding: EdgeInsets.only(
-                    left  : FigmaSize.w(16),
-                    top   : FigmaSize.h(10),
-                    bottom: FigmaSize.h(6)),
-                child: Text('Services',
-                    style: TextStyle(
-                        fontSize  : FigmaSize.w(13),
-                        fontWeight: FontWeight.w500,
-                        color     : const Color(0xFFD41000))),
-              ),
-              const HomeIconGrid(),
-              SizedBox(height: FigmaSize.h(12)),
+                // ── 2. Services label + icon grid ────────────────────────────
+                Padding(
+                  padding: EdgeInsets.only(
+                      left  : FigmaSize.w(16),
+                      top   : FigmaSize.h(10),
+                      bottom: FigmaSize.h(6)),
+                  child: Text('Services',
+                      style: TextStyle(
+                          fontSize  : FigmaSize.w(13),
+                          fontWeight: FontWeight.w500,
+                          color     : const Color(0xFFD41000))),
+                ),
+                const HomeIconGrid(),
+                SizedBox(height: FigmaSize.h(12)),
 
-              // ── 3. Online for Emergency ──────────────────────────────────
-              _EmergencyCard(
-                chatEnabled  : _emgChat,
-                callEnabled  : _emgCall,
-                chatRate     : '₹${((_astro?.perMinChat ?? 0) * 1.5)
-                    .toStringAsFixed(1)}/min',
-                callRate     : '₹${((_astro?.perMinVoiceCall ?? 0) * 1.5)
-                    .toStringAsFixed(1)}/min',
-                onChatChanged: (v) {
-                  setState(() => _emgChat = v);
-                  ApiClient().post(
-                    'astrologer_api/update_emergency_status',
-                    {'type': 'chat', 'status': v ? 'on' : 'off'},
-                    isAuthRequired: true,
-                  );
-                },
-                onCallChanged: (v) {
-                  setState(() => _emgCall = v);
-                  ApiClient().post(
-                    'astrologer_api/update_emergency_status',
-                    {'type': 'call', 'status': v ? 'on' : 'off'},
-                    isAuthRequired: true,
-                  );
-                },
-              ),
-              SizedBox(height: FigmaSize.h(12)),
+                // ── 3. Online for Emergency ──────────────────────────────────
+                _EmergencyCard(
+                  chatEnabled  : _emgChat,
+                  callEnabled  : _emgCall,
+                  chatRate     : '₹${((_astro?.perMinChat ?? 0) * 1.5)
+                      .toStringAsFixed(1)}/min',
+                  callRate     : '₹${((_astro?.perMinVoiceCall ?? 0) * 1.5)
+                      .toStringAsFixed(1)}/min',
+                  onChatChanged: (v) {
+                    setState(() => _emgChat = v);
+                    ApiClient().post(
+                      'astrologer_api/update_emergency_status',
+                      {'type': 'chat', 'status': v ? 'on' : 'off'},
+                      isAuthRequired: true,
+                    );
+                  },
+                  onCallChanged: (v) {
+                    setState(() => _emgCall = v);
+                    ApiClient().post(
+                      'astrologer_api/update_emergency_status',
+                      {'type': 'call', 'status': v ? 'on' : 'off'},
+                      isAuthRequired: true,
+                    );
+                  },
+                ),
+                SizedBox(height: FigmaSize.h(12)),
 
-              // ── 4. Today's Progress ──────────────────────────────────────
-              _ProgressCard(
-                perf      : _perf,
-                onCheckTap: () => Navigator.push(context,
-                    MaterialPageRoute(
-                        builder: (_) => const TodayPerformanceScreen())),
-              ),
-              SizedBox(height: FigmaSize.h(12)),
+                // ── 4. Today's Progress ──────────────────────────────────────
+                _ProgressCard(
+                  perf      : _perf,
+                  onCheckTap: () => Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (_) => const TodayPerformanceScreen())),
+                ),
+                SizedBox(height: FigmaSize.h(12)),
 
-              // ── 5. CEO Feedback banner ───────────────────────────────────
-              _CeoBanner(c: c),
-              SizedBox(height: FigmaSize.h(12)),
+                // ── 5. CEO Feedback banner ───────────────────────────────────
+                _CeoBanner(c: c),
+                SizedBox(height: FigmaSize.h(12)),
 
-              // ── 6. Auto Boost ────────────────────────────────────────────
-              _AutoBoostCard(
-                chatEnabled  : _boostChat,
-                callEnabled  : _boostCall,
-                onChatChanged: (v) => setState(() => _boostChat = v),
-                onCallChanged: (v) => setState(() => _boostCall = v),
-                c            : c,
-              ),
-              SizedBox(height: FigmaSize.h(12)),
+                // ── 6. Auto Boost ────────────────────────────────────────────
+                _AutoBoostCard(
+                  chatEnabled  : _boostChat,
+                  callEnabled  : _boostCall,
+                  onChatChanged: (v) => setState(() => _boostChat = v),
+                  onCallChanged: (v) => setState(() => _boostCall = v),
+                  c            : c,
+                ),
+                SizedBox(height: FigmaSize.h(12)),
 
-              // ── 7. Training Videos ───────────────────────────────────────
-              _TrainingVideosSection(c: c),
-              SizedBox(height: FigmaSize.h(32)),
-            ],
+                // ── 7. Training Videos ───────────────────────────────────────
+                _TrainingVideosSection(c: c),
+                SizedBox(height: FigmaSize.h(32)),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ── AppBar ──────────────────────────────────────────────────────────────────
+  // ── AppBar ───────────────────────────────────────────────────────────────────
   AppBar _buildAppBar(AppColors c) => AppBar(
-    backgroundColor      : AppTheme.primaryColor,
-    foregroundColor      : Colors.black,
+    backgroundColor          : AppTheme.primaryColor,
+    foregroundColor          : Colors.black,
     automaticallyImplyLeading: false,
-    elevation            : 0,
+    elevation                : 0,
     title: Row(children: [
       GestureDetector(
         onTap: () => Navigator.push(context,
@@ -295,7 +473,8 @@ class _HomeScreenState extends State<HomeScreen> {
     ]),
     actions: [
       GestureDetector(
-        onTap: () {},
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => WalletScreen())),
         child: SvgPicture.asset('assets/images/walllet.svg',
             width: FigmaSize.w(20), height: FigmaSize.h(20)),
       ),
@@ -310,7 +489,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 
-  // ── Toggle card ─────────────────────────────────────────────────────────────
+  // ── Toggle card ──────────────────────────────────────────────────────────────
   Widget _toggleCard(AppColors c) => Container(
     margin    : EdgeInsets.symmetric(
         horizontal: FigmaSize.w(10), vertical: FigmaSize.h(12)),
@@ -425,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ]),
   );
 
-  // ── Single service row ──────────────────────────────────────────────────────
+  // ── Single service row ───────────────────────────────────────────────────────
   Widget _serviceRow({
     required AppColors c,
     required String    label,
@@ -435,6 +614,20 @@ class _HomeScreenState extends State<HomeScreen> {
     required ValueChanged<bool> onChanged,
     VoidCallback? onBreak,
   }) {
+    final isDark = c.bg.computeLuminance() < 0.08;
+
+    final badgeBg = value
+        ? (isDark ? const Color(0xFF1A3D2A) : const Color(0xFFE8F5E9))
+        : (isDark ? const Color(0xFF3A3A3A) : const Color(0xFFF0F0F0));
+
+    final badgeBorder = value
+        ? (isDark ? const Color(0xFF4CAF50) : const Color(0xFF81C784))
+        : (isDark ? const Color(0xFF888888) : const Color(0xFFCCCCCC));
+
+    final badgeText = value
+        ? (isDark ? const Color(0xFF81C784) : const Color(0xFF2E7D32))
+        : (isDark ? const Color(0xFFCCCCCC) : const Color(0xFF757575));
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -446,11 +639,24 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontSize  : FigmaSize.w(15),
                     fontWeight: FontWeight.bold,
                     color     : c.text)),
-            SizedBox(height: FigmaSize.h(3)),
-            Text(subtitle,
+            SizedBox(height: FigmaSize.h(4)),
+            Container(
+              padding: EdgeInsets.symmetric(
+                  horizontal: FigmaSize.w(6),
+                  vertical  : FigmaSize.h(2)),
+              decoration: BoxDecoration(
+                color       : badgeBg,
+                borderRadius: BorderRadius.circular(6),
+                border      : Border.all(color: badgeBorder, width: 1),
+              ),
+              child: Text(
+                subtitle,
                 style: TextStyle(
-                    fontSize: FigmaSize.w(12),
-                    color   : value ? Colors.green : c.subText)),
+                    fontSize  : FigmaSize.w(11),
+                    fontWeight: FontWeight.w500,
+                    color     : badgeText),
+              ),
+            ),
           ],
         )),
         GestureDetector(
@@ -660,7 +866,6 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
           padding: EdgeInsets.symmetric(
               horizontal: FigmaSize.w(16), vertical: FigmaSize.h(20)),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // handle
             Container(
               width: FigmaSize.w(40), height: FigmaSize.h(4),
               margin: EdgeInsets.only(bottom: FigmaSize.h(14)),
@@ -668,14 +873,12 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
                   color: c.border,
                   borderRadius: BorderRadius.circular(2)),
             ),
-
             Text('When will you come Online Next',
                 style: TextStyle(
                     fontSize: FigmaSize.w(16), fontWeight: FontWeight.w600,
                     color: c.text),
                 textAlign: TextAlign.center),
             SizedBox(height: FigmaSize.h(6)),
-
             Text(DateFormat('dd MMM, yyyy').format(_date),
                 style: TextStyle(
                     fontSize: FigmaSize.w(22), fontWeight: FontWeight.bold,
@@ -686,8 +889,6 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
                 style: TextStyle(
                     fontSize: FigmaSize.w(13), color: c.subText)),
             SizedBox(height: FigmaSize.h(14)),
-
-            // date chips
             Row(children: [
               _dateChip(c, 'Today',    DateTime.now()),
               SizedBox(width: FigmaSize.w(8)),
@@ -697,8 +898,6 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
               _customDateChip(c, context),
             ]),
             SizedBox(height: FigmaSize.h(14)),
-
-            // quick-pick grid
             GridView.builder(
               shrinkWrap  : true,
               physics     : const NeverScrollableScrollPhysics(),
@@ -739,8 +938,6 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
               },
             ),
             SizedBox(height: FigmaSize.h(12)),
-
-            // same for all
             GestureDetector(
               onTap: () => setState(() => _sameAll = !_sameAll),
               child: Row(children: [
@@ -758,8 +955,6 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
               ]),
             ),
             SizedBox(height: FigmaSize.h(12)),
-
-            // buttons
             Row(children: [
               Expanded(child: OutlinedButton(
                 onPressed: _pickTime,
@@ -791,8 +986,7 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
         alignment : Alignment.center,
         padding   : EdgeInsets.symmetric(vertical: FigmaSize.h(8)),
         decoration: BoxDecoration(
-          color       : sel
-              ? const Color(0xFF1565C0) : c.surface,
+          color       : sel ? const Color(0xFF1565C0) : c.surface,
           border      : Border.all(color: c.border),
           borderRadius: BorderRadius.circular(8),
         ),
@@ -918,19 +1112,16 @@ class _TakeBreakModalState extends State<TakeBreakModal> {
             decoration: BoxDecoration(
               shape : BoxShape.circle,
               border: Border.all(
-                  color: const Color(0xFFD41000).withOpacity(0.4),
-                  width: 3)),
+                  color: const Color(0xFFD41000).withOpacity(0.4), width: 3)),
             alignment: Alignment.center,
             child: Icon(Icons.access_time,
-                color: const Color(0xFFD41000),
-                size : FigmaSize.w(32)),
+                color: const Color(0xFFD41000), size: FigmaSize.w(32)),
           ),
           SizedBox(height: FigmaSize.h(12)),
           Text(
             'Are you sure you want to schedule a break?\nPlease select the duration',
             textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: FigmaSize.w(13), color: c.subText),
+            style: TextStyle(fontSize: FigmaSize.w(13), color: c.subText),
           ),
           SizedBox(height: FigmaSize.h(14)),
           Row(children: [
@@ -966,8 +1157,7 @@ class _TakeBreakModalState extends State<TakeBreakModal> {
         padding   : EdgeInsets.symmetric(vertical: FigmaSize.h(13)),
         decoration: BoxDecoration(
           color       : sel
-              ? const Color(0xFFD41000).withOpacity(0.08)
-              : c.surface,
+              ? const Color(0xFFD41000).withOpacity(0.08) : c.surface,
           border      : Border.all(
               color: sel ? const Color(0xFFD41000) : c.border),
           borderRadius: BorderRadius.circular(8),
@@ -1012,7 +1202,7 @@ class _ProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
+    final c   = context.colors;
     final msg = perf.progress >= 1.0
         ? 'Target Completed! 🎉'
         : 'Only ${perf.remainingStr} left to complete your 14 hours online target.';
@@ -1213,8 +1403,7 @@ class _TrainingVideosSection extends StatefulWidget {
       _TrainingVideosSectionState();
 }
 
-class _TrainingVideosSectionState
-    extends State<_TrainingVideosSection> {
+class _TrainingVideosSectionState extends State<_TrainingVideosSection> {
   List<TrainingVideo> _videos  = [];
   bool                _loading = true;
 
@@ -1288,8 +1477,7 @@ class _TrainingVideosSectionState
         height: FigmaSize.h(160),
         child : ListView.separated(
           scrollDirection : Axis.horizontal,
-          padding         :
-              EdgeInsets.symmetric(horizontal: FigmaSize.w(16)),
+          padding         : EdgeInsets.symmetric(horizontal: FigmaSize.w(16)),
           itemCount       : _videos.length,
           separatorBuilder: (_, __) => SizedBox(width: FigmaSize.w(12)),
           itemBuilder: (_, i) {

@@ -1,20 +1,12 @@
 // lib/features/live/GoLiveScreen.dart
-//
-// Zero UI changes from the original.
-// Fixes applied (logic only):
-// 1. StatelessWidget → StatefulWidget
-// 2. channelProfileLiveBroadcasting (was missing entirely)
-// 3. setClientRole(Broadcaster) before joinChannel
-// 4. Camera preview shown before going live
-// 5. "Click to Go Live" calls Liveservice().LiveStart then joinChannel
-// 6. "End Live" calls Liveservice().LiveEnd then leaveChannel
-// 7. Mic / camera toggle actually mute the engine
-// 8. Firebase chat listener wired up (same as the existing GoLiveScreen doc)
-// 9. Viewer count from Firebase LiveViewers node
+// ── Theme-aware (brand colors via AppTheme / AppColors) ──────────────────────
+// ── Responsive via sw / sh from MediaQuery ───────────────────────────────────
+// ── Video layer is always dark by design; dialogs/snackbars follow app theme ─
 
 import 'dart:async';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
 import 'package:astrologer_app/core/widgets/ThemeGradientButton.dart';
 import 'package:astrologer_app/model/AstrologerLiveEventsListModel.dart';
@@ -29,7 +21,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class GoLiveScreen extends StatefulWidget {
   final LiveEventData? event;
-  const GoLiveScreen({super.key, this.event});
+  /// 'Small' | 'Medium' | 'Large' — controls live chat comment font size
+  final String chatFontSize;
+  const GoLiveScreen({super.key, this.event, this.chatFontSize = 'Medium'});
 
   @override
   State<GoLiveScreen> createState() => _GoLiveScreenState();
@@ -38,8 +32,8 @@ class GoLiveScreen extends StatefulWidget {
 class _GoLiveScreenState extends State<GoLiveScreen>
     with WidgetsBindingObserver {
   // ── Constants ──────────────────────────────────────────────────────────────
-  static const _appId  = "8782e154141a4c0bbc8acaa3004d21f2";
-  static const _dbUrl  =
+  static const _appId = "8782e154141a4c0bbc8acaa3004d21f2";
+  static const _dbUrl =
       "https://astrogurujii-production-default-rtdb.firebaseio.com/";
 
   // ── Agora ──────────────────────────────────────────────────────────────────
@@ -51,13 +45,23 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   bool _camOn       = true;
 
   // ── Viewer count ───────────────────────────────────────────────────────────
-  int  _viewerCount = 0;
+  int _viewerCount = 0;
   StreamSubscription<DatabaseEvent>? _viewerSub;
   DatabaseReference? _viewerRef;
 
   // ── Chat ───────────────────────────────────────────────────────────────────
-  final TextEditingController _msgCtrl = TextEditingController();
-  final FocusNode _msgFocus            = FocusNode();
+  /// Resolves the font-size label to actual pixel size (relative to sw)
+  double _resolvedFontSize(double sw) {
+    switch (widget.chatFontSize) {
+      case 'Small':  return sw * 0.026;
+      case 'Large':  return sw * 0.038;
+      case 'Medium':
+      default:       return sw * 0.031;
+    }
+  }
+
+  final TextEditingController _msgCtrl  = TextEditingController();
+  final FocusNode             _msgFocus = FocusNode();
   DatabaseReference? _chatRef;
   String _astroId   = '';
   String _astroName = '';
@@ -113,56 +117,43 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
   // ── Load user info ─────────────────────────────────────────────────────────
   Future<void> _loadUser() async {
-    final p  = await SharedPreferences.getInstance();
+    final p   = await SharedPreferences.getInstance();
     _astroId   = p.getString('astro_id')   ?? '';
     _astroName = p.getString('astro_name') ?? 'Astrologer';
   }
 
-  // ── Init Agora — preview only, no joinChannel yet ──────────────────────────
+  // ── Init Agora ─────────────────────────────────────────────────────────────
   Future<void> _initAgora() async {
     _engine = createAgoraRtcEngine();
-
     await _engine!.initialize(
       const RtcEngineContext(
         appId: _appId,
-        // ✅ FIX 1: LiveBroadcasting — required for one-to-many streaming
         channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
       ),
     );
-
     _engine!.registerEventHandler(
       RtcEngineEventHandler(
-        onUserJoined: (_, uid, __) {
-          _viewerRef?.child(uid.toString()).set(true);
-        },
-        onUserOffline: (_, uid, __) {
-          _viewerRef?.child(uid.toString()).remove();
-        },
+        onUserJoined:  (_, uid, __) => _viewerRef?.child(uid.toString()).set(true),
+        onUserOffline: (_, uid, __) => _viewerRef?.child(uid.toString()).remove(),
         onError: (code, msg) => debugPrint('❌ Agora $code: $msg'),
       ),
     );
-
-    // ✅ FIX 2: broadcaster role before anything else
-    await _engine!.setClientRole(
-        role: ClientRoleType.clientRoleBroadcaster);
+    await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
     await _engine!.enableVideo();
     await _engine!.enableAudio();
-    await _engine!.startPreview(); // camera on before going live
-
+    await _engine!.startPreview();
     if (mounted) setState(() => _engineReady = true);
   }
 
   // ── Init Firebase ──────────────────────────────────────────────────────────
   void _initFirebase() {
-    _chatRef  = _db.child('GroupLive').child(_channelId);
+    _chatRef   = _db.child('GroupLive').child(_channelId);
     _viewerRef = _db.child('LiveViewers').child(_channelId);
-
     _viewerSub = _viewerRef!.onValue.listen((event) {
       final val   = event.snapshot.value;
       final count = (val is Map) ? val.length : 0;
       if (mounted) setState(() => _viewerCount = count);
     });
-
     if (mounted) setState(() => _chatReady = true);
   }
 
@@ -173,13 +164,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       return;
     }
     setState(() => _isLoading = true);
-
     try {
       final body = await Liveservice().LiveStart(widget.event!.id!);
       if (!mounted) return;
-
       if (body['status'] == true) {
-        // ✅ FIX 3: joinChannel with token returned from live_start
         final agoraToken = body['token'] as String? ?? '';
         await _engine!.joinChannel(
           token    : agoraToken,
@@ -194,7 +182,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
             autoSubscribeAudio    : false,
           ),
         );
-
         await _postSystemMsg('🔴 Live session started!');
         if (mounted) setState(() => _isLive = true);
       } else {
@@ -215,10 +202,8 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       await _engine?.leaveChannel();
       await _viewerRef?.remove();
       await _postSystemMsg('⏹ Live session ended.');
-
       final body = await Liveservice().LiveEnd(widget.event!.id!);
       if (!mounted) return;
-
       if (body['status'] == true) {
         Navigator.pop(context);
       } else {
@@ -232,26 +217,42 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   Future<void> _confirmEnd() async {
+    // Dialog uses app theme surface colors automatically via AppTheme
     final yes = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
-        title  : const Text('End Live Session?'),
-        content: const Text(
-            'Viewers will be disconnected. Are you sure?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child    : const Text('Cancel'),
+      builder: (_) {
+        final c = context.colors;
+        return AlertDialog(
+          backgroundColor: c.surface,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'End Live Session?',
+            style: TextStyle(
+                color: c.text, fontWeight: FontWeight.w700),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child    : const Text('End Live',
-                style: TextStyle(color: Colors.red)),
+          content: Text(
+            'Viewers will be disconnected. Are you sure?',
+            style: TextStyle(color: c.subText),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Cancel',
+                  style: TextStyle(
+                      color: AppTheme.primaryYellow,
+                      fontWeight: FontWeight.w600)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('End Live',
+                  style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
+        );
+      },
     );
     if (yes == true) _endLive();
   }
@@ -304,7 +305,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content        : Text(msg),
       backgroundColor: error
-          ? Colors.red.shade700
+          ? AppTheme.accentRed
           : Colors.green.shade700,
       behavior: SnackBarBehavior.floating,
       shape   : RoundedRectangleBorder(
@@ -326,9 +327,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         if (_isLive) { _confirmEnd(); return false; }
         return true;
       },
+      // Video layer is intentionally always black — it's a camera feed
       child: Scaffold(
-        backgroundColor            : Colors.black,
-        resizeToAvoidBottomInset   : true,
+        backgroundColor         : Colors.black,
+        resizeToAvoidBottomInset: true,
         body: Stack(
           children: [
 
@@ -337,16 +339,16 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               child: _engineReady && _engine != null
                   ? AgoraVideoView(
                       controller: VideoViewController(
-                        rtcEngine       : _engine!,
-                        canvas          : const VideoCanvas(uid: 0),
+                        rtcEngine        : _engine!,
+                        canvas           : const VideoCanvas(uid: 0),
                         useFlutterTexture: true,
                       ),
                     )
                   : Container(
                       color: const Color(0xFF0D0D1A),
-                      child: const Center(
+                      child: Center(
                         child: CircularProgressIndicator(
-                            color: Color(0xFFFCD417)),
+                            color: AppTheme.primaryYellow),
                       ),
                     ),
             ),
@@ -358,9 +360,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               child: Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    begin  : Alignment.topCenter,
-                    end    : Alignment.bottomCenter,
-                    colors : [Colors.black87, Colors.transparent],
+                    begin : Alignment.topCenter,
+                    end   : Alignment.bottomCenter,
+                    colors: [Colors.black87, Colors.transparent],
                   ),
                 ),
               ),
@@ -373,9 +375,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               child: Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    begin  : Alignment.bottomCenter,
-                    end    : Alignment.topCenter,
-                    colors : [Colors.black, Colors.transparent],
+                    begin : Alignment.bottomCenter,
+                    end   : Alignment.topCenter,
+                    colors: [Colors.black, Colors.transparent],
                   ),
                 ),
               ),
@@ -397,8 +399,8 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                     child: Container(
                       padding   : const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color        : Colors.black45,
-                        borderRadius : BorderRadius.circular(50),
+                        color       : Colors.black45,
+                        borderRadius: BorderRadius.circular(50),
                       ),
                       child: const Icon(Icons.arrow_back_ios_new,
                           color: Colors.white, size: 18),
@@ -469,7 +471,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               ),
             ),
 
-            // ── LAYER 5: SVG face frame (before going live) ─────────────────
+            // ── LAYER 5: SVG face frame (before going live) ──────────────────
             if (!_isLive)
               Positioned(
                 top : sh * 0.16,
@@ -517,10 +519,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                 child : ShaderMask(
                   shaderCallback: (bounds) =>
                       const LinearGradient(
-                        begin  : Alignment.topCenter,
-                        end    : Alignment.bottomCenter,
-                        colors : [Colors.transparent, Colors.white],
-                        stops  : [0.0, 0.25],
+                        begin : Alignment.topCenter,
+                        end   : Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.white],
+                        stops : [0.0, 0.25],
                       ).createShader(bounds),
                   blendMode: BlendMode.dstIn,
                   child    : FirebaseAnimatedList(
@@ -534,20 +536,17 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                       if (raw == null) return const SizedBox.shrink();
                       final data = Map<String, dynamic>.from(
                           raw as Map<dynamic, dynamic>);
-                      final isMe =
-                          data['from'] == _astroId;
-                      final isSystem =
-                          data['is_system'] == true;
-
+                      final isMe     = data['from']      == _astroId;
+                      final isSystem = data['is_system'] == true;
                       return Padding(
-                        padding: EdgeInsets.only(
-                            bottom: sh * 0.007),
+                        padding: EdgeInsets.only(bottom: sh * 0.007),
                         child: _ChatBubble(
                           name    : data['name']    ?? '',
                           message : data['message'] ?? '',
                           isMe    : isMe,
                           isSystem: isSystem,
                           sw      : sw,
+                          fontSize: _resolvedFontSize(sw),
                         ),
                       );
                     },
@@ -578,7 +577,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
 
-                  // Mic toggle
                   _ControlButton(
                     svgPath: 'assets/images/mic.svg',
                     active : _micOn,
@@ -588,7 +586,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
                   SizedBox(width: sw * 0.03),
 
-                  // Camera toggle
                   _ControlButton(
                     svgPath: 'assets/images/video-camera.svg',
                     active : _camOn,
@@ -598,7 +595,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
                   SizedBox(width: sw * 0.03),
 
-                  // ✅ FIX 4: button actually calls _startLive / _confirmEnd
                   Expanded(
                     child: GradientButton(
                       height: sw * 0.14,
@@ -624,14 +620,14 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               Positioned.fill(
                 child: Container(
                   color: Colors.black54,
-                  child: const Center(
+                  child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         CircularProgressIndicator(
-                            color: Color(0xFFFCD417)),
-                        SizedBox(height: 12),
-                        Text('Please wait...',
+                            color: AppTheme.primaryYellow),
+                        const SizedBox(height: 12),
+                        const Text('Please wait...',
                             style: TextStyle(
                                 color   : Colors.white70,
                                 fontSize: 14)),
@@ -656,16 +652,15 @@ class _LiveBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(
-          horizontal: sw * 0.025, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: sw * 0.025, vertical: 4),
       decoration: BoxDecoration(
-        color       : Colors.red,
+        color      : AppTheme.accentRed,
         borderRadius: BorderRadius.circular(20),
-        boxShadow   : [
+        boxShadow  : [
           BoxShadow(
-              color      : Colors.red.withOpacity(0.5),
+              color      : AppTheme.accentRed.withOpacity(0.5),
               blurRadius : 8,
-              spreadRadius: 1)
+              spreadRadius: 1),
         ],
       ),
       child: Row(
@@ -686,15 +681,14 @@ class _LiveBadge extends StatelessWidget {
 }
 
 class _ViewerBadge extends StatelessWidget {
-  final int count;
+  final int    count;
   final double sw;
   const _ViewerBadge({required this.count, required this.sw});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(
-          horizontal: sw * 0.025, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: sw * 0.025, vertical: 4),
       decoration: BoxDecoration(
         color       : Colors.black54,
         borderRadius: BorderRadius.circular(20),
@@ -723,6 +717,7 @@ class _ChatBubble extends StatelessWidget {
   final bool   isMe;
   final bool   isSystem;
   final double sw;
+  final double fontSize;
 
   const _ChatBubble({
     required this.name,
@@ -730,6 +725,7 @@ class _ChatBubble extends StatelessWidget {
     required this.isMe,
     required this.isSystem,
     required this.sw,
+    required this.fontSize,
   });
 
   @override
@@ -746,7 +742,7 @@ class _ChatBubble extends StatelessWidget {
           child: Text(message,
               style: TextStyle(
                   color   : Colors.white54,
-                  fontSize: sw * 0.028)),
+                  fontSize: fontSize * 0.9)),
         ),
       );
     }
@@ -763,10 +759,11 @@ class _ChatBubble extends StatelessWidget {
           TextSpan(
             text : '$name  ',
             style: TextStyle(
+              // Own messages: brand yellow; others: light blue
               color     : isMe
-                  ? const Color(0xFFFCD417)
+                  ? AppTheme.primaryYellow
                   : Colors.lightBlueAccent,
-              fontSize  : sw * 0.031,
+              fontSize  : fontSize,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -834,7 +831,8 @@ class _ChatInput extends StatelessWidget {
           height: sh * 0.052,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: Color(0xFFFCD417),
+            // Send button always uses brand yellow
+            color: AppTheme.primaryYellow,
           ),
           child: Icon(Icons.send_rounded,
               color: Colors.black, size: sw * 0.045),
@@ -845,10 +843,10 @@ class _ChatInput extends StatelessWidget {
 }
 
 class _ControlButton extends StatelessWidget {
-  final String    svgPath;
-  final bool      active;
+  final String       svgPath;
+  final bool         active;
   final VoidCallback? onTap;
-  final double    size;
+  final double       size;
 
   const _ControlButton({
     required this.svgPath,
@@ -868,14 +866,14 @@ class _ControlButton extends StatelessWidget {
         padding  : EdgeInsets.all(size * 0.22),
         decoration: BoxDecoration(
           shape    : BoxShape.circle,
-          color    : active ? Colors.white : Colors.red.shade600,
+          color    : active ? Colors.white : AppTheme.accentRed,
           boxShadow: [
             BoxShadow(
-              color : (active ? Colors.white : Colors.red)
+              color     : (active ? Colors.white : AppTheme.accentRed)
                   .withOpacity(0.25),
               blurRadius: 8,
               offset    : const Offset(0, 3),
-            )
+            ),
           ],
         ),
         child: SvgPicture.asset(

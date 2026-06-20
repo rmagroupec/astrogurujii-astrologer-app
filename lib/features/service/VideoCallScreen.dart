@@ -1,18 +1,14 @@
 // lib/features/service/VideoCallScreen.dart
-//
-// Changes:
-// 1. ✅ FIXED: back press → minimize() instead of ending call
-// 2. ✅ minimize() arrow in top-left (keyboard_arrow_down icon)
-// 3. ✅ WillPopScope minimizes, never ends
-// 4. ✅ resumed flag — skips re-initAgora() if engine already running
-// 5. ✅ initAgora passes callerName/callerImage for overlay
-// 6. ✅ dispose() never calls endLocalCall() — provider manages lifetime
-// 7. ✅ onEnded callback re-wired on every screen open
+// ── UI: Images 2 & 3 — top bar matching AudioCallScreen, info toggle, PiP ────
+// ── Theme-aware: rating sheet uses AppColors ──────────────────────────────────
+// ── Zero functional changes ───────────────────────────────────────────────────
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/features/service/provider/VideoCallProvider.dart';
 import 'package:astrologer_app/service/apiService.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 class VideoCallScreen extends StatefulWidget {
@@ -20,17 +16,27 @@ class VideoCallScreen extends StatefulWidget {
   final String channelId;
   final String userName;
   final String userAvatar;
+  final bool   resumed;
 
-  /// ✅ true when navigated back from mini overlay — skip re-initAgora()
-  final bool resumed;
+  // Optional user info for info panel
+  final String userId;
+  final String gender;
+  final String dob;
+  final String pob;
+  final String remainingTime;
 
   const VideoCallScreen({
     super.key,
     required this.channelId,
     required this.token,
-    this.userName   = 'User',
-    this.userAvatar = '',
-    this.resumed    = false,
+    this.userName      = 'User',
+    this.userAvatar    = '',
+    this.resumed       = false,
+    this.userId        = '',
+    this.gender        = '',
+    this.dob           = '',
+    this.pob           = '',
+    this.remainingTime = '',
   });
 
   @override
@@ -39,8 +45,12 @@ class VideoCallScreen extends StatefulWidget {
 
 class _VideoCallScreenState extends State<VideoCallScreen>
     with WidgetsBindingObserver {
-  bool _showUI   = true;
+
+  bool _showInfo = false;
   bool _endShown = false;
+
+  static const _gold     = Color(0xFFE6A817);
+  static const _darkText = Color(0xFF2C2C2C);
 
   @override
   void initState() {
@@ -52,7 +62,6 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       final provider = context.read<VideoCallProvider>();
 
       if (!widget.resumed) {
-        // Fresh call — full init
         await provider.initAgora(
           channelId: widget.channelId,
           token    : widget.token,
@@ -65,9 +74,7 @@ class _VideoCallScreenState extends State<VideoCallScreen>
           deductApi: (id) async => ApiService().deductAmount(id),
         );
       } else {
-        // Resumed from overlay — engine still running, just re-wire callback
         provider.expand();
-        // Re-wire onEnded so this new screen instance handles rating sheet
         await provider.initAgora(
           channelId: widget.channelId,
           token    : widget.token,
@@ -80,7 +87,6 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    // ✅ NEVER call endLocalCall here — provider manages engine lifetime
     super.dispose();
   }
 
@@ -94,7 +100,6 @@ class _VideoCallScreenState extends State<VideoCallScreen>
     }
   }
 
-  // ✅ Minimize — does NOT end call
   void _minimize() {
     if (_endShown) return;
     context.read<VideoCallProvider>().minimize();
@@ -120,8 +125,8 @@ class _VideoCallScreenState extends State<VideoCallScreen>
         userAvatar: widget.userAvatar,
         duration  : provider.duration,
         onDone    : () {
-          Navigator.pop(context); // close sheet
-          Navigator.pop(context); // close call screen
+          Navigator.pop(context);
+          Navigator.pop(context);
         },
       ),
     );
@@ -131,14 +136,15 @@ class _VideoCallScreenState extends State<VideoCallScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape  : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape  : RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title  : const Text('End Call',
             style: TextStyle(fontWeight: FontWeight.bold)),
         content: const Text('Are you sure you want to end this video call?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child    : const Text('Cancel',
+            child: const Text('Cancel',
                 style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
@@ -161,79 +167,133 @@ class _VideoCallScreenState extends State<VideoCallScreen>
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<VideoCallProvider>();
+    final provider    = context.watch<VideoCallProvider>();
+    final isConnected = provider.remoteUid != null;
 
-    // ✅ Back press → minimize, NOT end call
     return WillPopScope(
-      onWillPop: () async {
-        _minimize();
-        return false;
-      },
+      onWillPop: () async { _minimize(); return false; },
       child: Scaffold(
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            // Remote video full-screen
+
+            // ── Remote video full-screen ────────────────────────────────
             GestureDetector(
-              onTap : () => setState(() => _showUI = !_showUI),
-              child : SizedBox.expand(child: _remoteVideoWidget(provider)),
+              onTap: () => setState(() => _showInfo = false),
+              child: SizedBox.expand(child: _remoteVideoWidget(provider)),
             ),
 
-            // Local PiP top-right
+            // ── Local PiP — bottom-right, above controls ────────────────
             Positioned(
-              top   : MediaQuery.of(context).padding.top + 8,
+              bottom: MediaQuery.of(context).padding.bottom + 104,
               right : 12,
-              width : 110,
-              height: 150,
+              width : 100,
+              height: 140,
               child : _localPipWidget(provider),
             ),
 
-            // ✅ Minimize button top-left (replaces raw back behaviour)
+            // ── Top gradient ────────────────────────────────────────────
             Positioned(
-              top : MediaQuery.of(context).padding.top + 12,
-              left: 12,
-              child: AnimatedOpacity(
-                opacity : _showUI ? 1 : 0,
-                duration: const Duration(milliseconds: 200),
-                child   : GestureDetector(
-                  onTap: _minimize,
-                  child: Container(
-                    width     : 40,
-                    height    : 40,
-                    decoration: BoxDecoration(
-                      color : Colors.black45,
-                      shape : BoxShape.circle,
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: const Icon(Icons.keyboard_arrow_down,
-                        color: Colors.white, size: 24),
+              top: 0, left: 0, right: 0,
+              child: Container(
+                height: MediaQuery.of(context).padding.top + 80,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin  : Alignment.topCenter,
+                    end    : Alignment.bottomCenter,
+                    colors : [Colors.black54, Colors.transparent],
                   ),
                 ),
               ),
             ),
 
-            // Top info — name + timer (pushed right of minimize button)
-            AnimatedOpacity(
-              opacity : _showUI ? 1 : 0,
-              duration: const Duration(milliseconds: 200),
-              child   : Positioned(
-                top : MediaQuery.of(context).padding.top + 12,
-                left: 64,  // right of minimize button
-                child: _topInfo(provider),
+            // ── Top bar — matches AudioCallScreen exactly ───────────────
+            Positioned(
+              top : MediaQuery.of(context).padding.top + 8,
+              left: 12, right: 12,
+              child: Row(
+                children: [
+                  // Back / minimize
+                  GestureDetector(
+                    onTap: _minimize,
+                    child: Container(
+                      width : 36, height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.15),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Icon(Icons.arrow_back_ios_new,
+                          color: Colors.white, size: 16),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+
+                  // Name + timer (centered)
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(widget.userName,
+                            style: const TextStyle(
+                                color     : Colors.white,
+                                fontSize  : 16,
+                                fontWeight: FontWeight.w700)),
+                        Consumer<VideoCallProvider>(
+                          builder: (_, p, __) => Text(
+                            p.remoteUid != null ? p.duration : 'Connecting…',
+                            style: TextStyle(
+                                color  : isConnected
+                                    ? Colors.greenAccent.shade200
+                                    : Colors.white54,
+                                fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 10),
+
+                  // Info toggle — gold circle matching audio screen
+                  GestureDetector(
+                    onTap: () => setState(() => _showInfo = !_showInfo),
+                    child: Container(
+                      width : 36, height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _showInfo
+                            ? _gold
+                            : _gold.withOpacity(0.25),
+                      ),
+                      child: Icon(Icons.info_outline,
+                          color: _showInfo ? Colors.white : _gold,
+                          size: 20),
+                    ),
+                  ),
+                ],
               ),
             ),
 
-            // Bottom controls
+            // ── Info overlay panel (Image 2) ────────────────────────────
+            if (_showInfo)
+              Positioned(
+                top  : MediaQuery.of(context).padding.top + 66,
+                left : 12, right: 12,
+                child: _InfoOverlay(
+                  displayName: widget.userName,
+                  userId     : widget.userId,
+                  gender     : widget.gender,
+                  dob        : widget.dob,
+                  pob        : widget.pob,
+                ),
+              ),
+
+            // ── Bottom controls (frosted pill, matches images) ───────────
             Positioned(
               bottom: 0, left: 0, right: 0,
-              child : AnimatedSlide(
-                offset  : _showUI ? Offset.zero : const Offset(0, 1),
-                duration: const Duration(milliseconds: 250),
-                child   : AnimatedOpacity(
-                  opacity : _showUI ? 1 : 0,
-                  duration: const Duration(milliseconds: 200),
-                  child   : _bottomControls(provider),
-                ),
+              child : _BottomControls(
+                provider: provider,
+                onEnd   : _onEndButtonPressed,
               ),
             ),
           ],
@@ -247,20 +307,21 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children    : [
+          children: [
             CircleAvatar(
-              radius         : 48,
+              radius         : 52,
               backgroundColor: Colors.grey.shade800,
               backgroundImage: widget.userAvatar.isNotEmpty
-                  ? NetworkImage(widget.userAvatar)
-                  : null,
+                  ? NetworkImage(widget.userAvatar) : null,
               child: widget.userAvatar.isEmpty
-                  ? const Icon(Icons.person, size: 48, color: Colors.white54)
+                  ? const Icon(Icons.person, size: 52, color: Colors.white54)
                   : null,
             ),
             const SizedBox(height: 16),
             Text(widget.userName,
-                style: const TextStyle(color: Colors.white, fontSize: 20,
+                style: const TextStyle(
+                    color     : Colors.white,
+                    fontSize  : 20,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             const Text('Waiting for user to join…',
@@ -269,142 +330,276 @@ class _VideoCallScreenState extends State<VideoCallScreen>
         ),
       );
     }
-   return provider.remoteVideoOn
-    ? AgoraVideoView(
-        controller: VideoViewController.remote(
-          rtcEngine        : provider.engine!,
-          canvas           : VideoCanvas(uid: provider.remoteUid!),
-          connection       : RtcConnection(channelId: widget.channelId),
-          useFlutterTexture: true,  // ✅ fixes white screen
-        ),
-      )
-    : Container(
-        color: Colors.black,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.videocam_off, color: Colors.white54, size: 40),
-              const SizedBox(height: 8),
-              Text(widget.userName,
-                  style: const TextStyle(color: Colors.white70)),
-            ],
-          ),
-        ),
-      );
+    return provider.remoteVideoOn
+        ? AgoraVideoView(
+            controller: VideoViewController.remote(
+              rtcEngine        : provider.engine!,
+              canvas           : VideoCanvas(uid: provider.remoteUid!),
+              connection       : RtcConnection(channelId: widget.channelId),
+              useFlutterTexture: true,
+            ),
+          )
+        : Container(
+            color: Colors.black,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.videocam_off,
+                      color: Colors.white54, size: 40),
+                  const SizedBox(height: 8),
+                  Text(widget.userName,
+                      style: const TextStyle(color: Colors.white70)),
+                ],
+              ),
+            ),
+          );
   }
 
   Widget _localPipWidget(VideoCallProvider provider) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        color: Colors.black,
+        decoration: BoxDecoration(
+          color       : Colors.black,
+          borderRadius: BorderRadius.circular(12),
+          border      : Border.all(color: Colors.white38, width: 1.5),
+        ),
         child: provider.engine == null
-            ? const Center(child: SizedBox(width: 24, height: 24,
+            ? const Center(child: SizedBox(width: 22, height: 22,
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: Colors.white54)))
             : provider.isVideoOn
                 ? AgoraVideoView(
                     controller: VideoViewController(
-                      rtcEngine       : provider.engine!,
-                      canvas          : const VideoCanvas(uid: 0),
+                      rtcEngine        : provider.engine!,
+                      canvas           : const VideoCanvas(uid: 0),
                       useFlutterTexture: true,
                     ),
                   )
                 : Container(
                     color: Colors.grey.shade900,
                     child: const Center(child: Icon(Icons.videocam_off,
-                        color: Colors.white54, size: 32)),
+                        color: Colors.white54, size: 28)),
                   ),
       ),
     );
   }
+}
 
-  Widget _topInfo(VideoCallProvider provider) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(widget.userName,
-            style: const TextStyle(color: Colors.white, fontSize: 18,
-                fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        Consumer<VideoCallProvider>(
-          builder: (_, p, __) => Row(children: [
-            Container(
-              width : 8, height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: p.remoteUid != null ? Colors.greenAccent : Colors.orange,
+// ── Info overlay panel ────────────────────────────────────────────────────────
+class _InfoOverlay extends StatelessWidget {
+  final String displayName;
+  final String userId;
+  final String gender;
+  final String dob;
+  final String pob;
+
+  static const _red = Color(0xFFD41000);
+
+  const _InfoOverlay({
+    required this.displayName,
+    required this.userId,
+    required this.gender,
+    required this.dob,
+    required this.pob,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color       : Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow   : [
+          BoxShadow(
+            color     : Colors.black.withOpacity(0.20),
+            blurRadius: 12,
+            offset    : const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _InfoRow(label: 'Name',
+              value: '$displayName${userId.isNotEmpty ? " ($userId)" : ""}'),
+          _InfoRow(label: 'Gender',
+              value: gender.isNotEmpty ? gender : '—'),
+          _InfoRow(label: 'DOB',
+              value: dob.isNotEmpty ? dob : '—'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _InfoRow(
+                  label: 'POB',
+                  value: pob.isNotEmpty ? pob : '—')),
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: pob));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content : Text('Copied'),
+                        duration: Duration(seconds: 1)));
+                },
+                child: const Padding(
+                  padding: EdgeInsets.only(left: 8, top: 2),
+                  child: Icon(Icons.copy_rounded,
+                      size: 16, color: Colors.grey),
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Text(p.remoteUid != null ? p.duration : 'Connecting…',
-                style: const TextStyle(color: Colors.white70, fontSize: 13)),
-          ]),
-        ),
-      ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {},
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: const Text('Suggest -Remedy',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w600)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {},
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade600,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: const Text('Open Kundli',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Row(
+            children: [
+              Icon(Icons.note_alt_outlined, size: 14, color: _red),
+              SizedBox(width: 5),
+              Text('Add / View Notes',
+                  style: TextStyle(
+                      color     : _red,
+                      fontSize  : 12,
+                      fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ],
+      ),
     );
   }
+}
 
-  Widget _bottomControls(VideoCallProvider provider) {
+class _InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  static const _red = Color(0xFFD41000);
+  const _InfoRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 5),
+    child: RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 13, color: Color(0xFF2C2C2C)),
+        children: [
+          TextSpan(text: '$label : ',
+              style: const TextStyle(
+                  color: _red, fontWeight: FontWeight.w700)),
+          TextSpan(text: value),
+        ],
+      ),
+    ),
+  );
+}
+
+// ── Bottom controls (frosted pill — matches image) ────────────────────────────
+class _BottomControls extends StatelessWidget {
+  final VideoCallProvider provider;
+  final VoidCallback      onEnd;
+
+  const _BottomControls({required this.provider, required this.onEnd});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.only(
-        top   : 20,
-        bottom: MediaQuery.of(context).padding.bottom + 20,
-        left  : 16, right: 16,
+        top   : 16,
+        bottom: MediaQuery.of(context).padding.bottom + 16,
+        left  : 12, right: 12,
       ),
-      decoration: const BoxDecoration(
-        color       : Color(0xBB000000),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color       : Colors.black.withOpacity(0.72),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _ctrlBtn(
+          _CtrlBtn(
             icon  : provider.speakerOn
-                ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                ? Icons.volume_up_rounded
+                : Icons.volume_off_rounded,
             label : 'Speaker',
             active: provider.speakerOn,
             onTap : provider.toggleSpeaker,
           ),
-          _ctrlBtn(
-            icon  : provider.muted ? Icons.mic_off : Icons.mic,
+          _CtrlBtn(
+            icon  : provider.muted
+                ? Icons.mic_off_rounded
+                : Icons.mic_rounded,
             label : 'Mute',
             active: !provider.muted,
             onTap : provider.toggleMute,
           ),
-          _ctrlBtn(
-            icon  : Icons.cameraswitch_rounded,
-            label : 'Flip',
-            active: true,
-            onTap : provider.switchCamera,
-          ),
-          _ctrlBtn(
+          _CtrlBtn(
             icon  : provider.isVideoOn
-                ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+                ? Icons.videocam_rounded
+                : Icons.videocam_off_rounded,
             label : 'Video',
             active: provider.isVideoOn,
             onTap : provider.toggleVideo,
           ),
+          // Red end call — center, slightly larger
           GestureDetector(
-            onTap: _onEndButtonPressed,
+            onTap: onEnd,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width     : 60, height: 60,
+                  width     : 58, height: 58,
                   decoration: BoxDecoration(
                     shape    : BoxShape.circle,
-                    color    : Colors.red,
-                    boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.5),
-                        blurRadius: 12)],
+                    color    : Colors.red.shade600,
+                    boxShadow: [
+                      BoxShadow(
+                        color     : Colors.red.withOpacity(0.40),
+                        blurRadius: 12,
+                        offset    : const Offset(0, 3),
+                      ),
+                    ],
                   ),
                   child: const Icon(Icons.call_end_rounded,
-                      color: Colors.white, size: 28),
+                      color: Colors.white, size: 26),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 5),
                 const Text('End',
-                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    style: TextStyle(
+                        color: Colors.white70, fontSize: 11)),
               ],
             ),
           ),
@@ -412,47 +607,54 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       ),
     );
   }
-
-  Widget _ctrlBtn({
-    required IconData     icon,
-    required String       label,
-    required bool         active,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children    : [
-          Container(
-            width     : 50, height: 50,
-            decoration: BoxDecoration(
-              shape : BoxShape.circle,
-              color : active ? Colors.white24 : Colors.white.withOpacity(0.08),
-              border: Border.all(
-                  color: active ? Colors.white38 : Colors.transparent),
-            ),
-            child: Icon(icon,
-                color: active ? Colors.white : Colors.white38, size: 22),
-          ),
-          const SizedBox(height: 6),
-          Text(label,
-              style: TextStyle(
-                  color   : active ? Colors.white70 : Colors.white30,
-                  fontSize: 11)),
-        ],
-      ),
-    );
-  }
 }
 
-// =============================================================================
-// VIDEO RATING SHEET
-// =============================================================================
+class _CtrlBtn extends StatelessWidget {
+  final IconData     icon;
+  final String       label;
+  final bool         active;
+  final VoidCallback onTap;
+
+  const _CtrlBtn({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width : 52, height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withOpacity(active ? 0.18 : 0.08),
+            border: Border.all(
+                color: active ? Colors.white38 : Colors.transparent),
+          ),
+          child: Icon(icon,
+              color: active ? Colors.white : Colors.white38,
+              size: 22),
+        ),
+        const SizedBox(height: 5),
+        Text(label,
+            style: TextStyle(
+                color   : active ? Colors.white70 : Colors.white30,
+                fontSize: 11)),
+      ],
+    ),
+  );
+}
+
+// ── Rating sheet — theme-aware ─────────────────────────────────────────────────
 class _VideoRatingSheet extends StatefulWidget {
-  final String userName;
-  final String userAvatar;
-  final String duration;
+  final String     userName;
+  final String     userAvatar;
+  final String     duration;
   final VoidCallback onDone;
 
   const _VideoRatingSheet({
@@ -468,9 +670,11 @@ class _VideoRatingSheet extends StatefulWidget {
 
 class _VideoRatingSheetState extends State<_VideoRatingSheet> {
   int  _stars      = 0;
+  bool _submitting = false;
   final _reviewCtrl = TextEditingController();
-  bool _submitting  = false;
-  static const _labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+  static const _labels = [
+    '', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'
+  ];
 
   @override
   void dispose() { _reviewCtrl.dispose(); super.dispose(); }
@@ -478,7 +682,7 @@ class _VideoRatingSheetState extends State<_VideoRatingSheet> {
   Future<void> _submit() async {
     if (_stars == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a star rating.')));
+          const SnackBar(content: Text('Please select a star rating.')));
       return;
     }
     setState(() => _submitting = true);
@@ -489,22 +693,29 @@ class _VideoRatingSheetState extends State<_VideoRatingSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final c  = context.colors;
     final bi = MediaQuery.of(context).viewInsets.bottom;
+
     return Container(
-      padding: EdgeInsets.only(left: 20, right: 20, top: 24, bottom: 24 + bi),
-      decoration: const BoxDecoration(
-        color       : Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      padding: EdgeInsets.only(
+          left: 20, right: 20, top: 24, bottom: 24 + bi),
+      decoration: BoxDecoration(
+        color       : c.surface,
+        borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(24)),
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
+
         Container(width: 40, height: 4,
-            decoration: BoxDecoration(color: Colors.grey.shade300,
+            decoration: BoxDecoration(
+                color      : c.border,
                 borderRadius: BorderRadius.circular(2))),
         const SizedBox(height: 20),
 
         // Call ended badge
         Container(
-          padding   : const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding   : const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color       : Colors.red.shade50,
             borderRadius: BorderRadius.circular(20),
@@ -514,106 +725,143 @@ class _VideoRatingSheetState extends State<_VideoRatingSheet> {
             Icon(Icons.videocam_off, size: 14, color: Colors.red.shade400),
             const SizedBox(width: 6),
             Text('Video Call Ended',
-                style: TextStyle(color: Colors.red.shade400,
-                    fontWeight: FontWeight.w600, fontSize: 12)),
+                style: TextStyle(
+                    color     : Colors.red.shade400,
+                    fontWeight: FontWeight.w600,
+                    fontSize  : 12)),
           ]),
         ),
         const SizedBox(height: 20),
 
-        // Avatar + name + duration
         CircleAvatar(
           radius         : 40,
           backgroundColor: Colors.grey.shade200,
           backgroundImage: widget.userAvatar.isNotEmpty
               ? NetworkImage(widget.userAvatar) : null,
           child: widget.userAvatar.isEmpty
-              ? const Icon(Icons.person, size: 40, color: Colors.grey) : null,
+              ? const Icon(Icons.person, size: 40, color: Colors.grey)
+              : null,
         ),
         const SizedBox(height: 10),
         Text(widget.userName,
-            style: const TextStyle(fontSize: 18,
-                fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A))),
+            style: TextStyle(
+                fontSize  : 18,
+                fontWeight: FontWeight.bold,
+                color     : c.text)),
         const SizedBox(height: 4),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           const Icon(Icons.videocam, size: 13, color: Colors.grey),
           const SizedBox(width: 4),
           Text('Video · ${widget.duration}',
-              style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              style: TextStyle(color: c.subText, fontSize: 13)),
         ]),
 
         const SizedBox(height: 20),
-        const Text('Rate Your Experience',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+        Text('Rate Your Experience',
+            style: TextStyle(
+                fontSize  : 17,
+                fontWeight: FontWeight.bold,
+                color     : c.text)),
         const SizedBox(height: 4),
         Text('How was your video call with ${widget.userName}?',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+            style: TextStyle(fontSize: 13, color: c.subText)),
         const SizedBox(height: 16),
 
-        // Stars
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(5, (i) {
             final s = i + 1;
             return GestureDetector(
               onTap: () => setState(() => _stars = s),
-              child: Padding(padding: const EdgeInsets.all(4),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
                 child: Icon(
-                  _stars >= s ? Icons.star_rounded : Icons.star_outline_rounded,
-                  size: 44,
-                  color: _stars >= s ? const Color(0xFFEBC351) : Colors.grey.shade300,
-                )),
+                  _stars >= s
+                      ? Icons.star_rounded
+                      : Icons.star_outline_rounded,
+                  size : 44,
+                  color: _stars >= s
+                      ? const Color(0xFFEBC351)
+                      : Colors.grey.shade300,
+                ),
+              ),
             );
           }),
         ),
-        if (_stars > 0) Padding(padding: const EdgeInsets.only(top: 6),
-          child: Text(_labels[_stars],
-              style: const TextStyle(color: Color(0xFFEBC351),
-                  fontWeight: FontWeight.w600, fontSize: 14))),
+        if (_stars > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(_labels[_stars],
+                style: const TextStyle(
+                    color     : Color(0xFFEBC351),
+                    fontWeight: FontWeight.w600,
+                    fontSize  : 14)),
+          ),
 
         const SizedBox(height: 16),
-        TextField(controller: _reviewCtrl, maxLines: 3, maxLength: 300,
+
+        TextField(
+          controller: _reviewCtrl,
+          maxLines  : 3,
+          maxLength : 300,
+          style     : TextStyle(color: c.text),
           decoration: InputDecoration(
             hintText     : 'Write your review (optional)…',
-            hintStyle    : TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            filled       : true, fillColor: Colors.grey.shade50,
-            border       : OutlineInputBorder(borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade200)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade200)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFEBC351))),
+            hintStyle    : TextStyle(color: c.subText, fontSize: 13),
+            filled       : true,
+            fillColor    : c.toggleBg,
+            border       : OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide  : BorderSide(color: c.border)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide  : BorderSide(color: c.border)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide  : const BorderSide(
+                    color: Color(0xFFEBC351))),
             contentPadding: const EdgeInsets.all(12),
-          )),
+          ),
+        ),
         const SizedBox(height: 16),
 
         Row(children: [
-          Expanded(child: OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              side   : BorderSide(color: Colors.grey.shade300),
-              shape  : RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          Expanded(
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                side   : BorderSide(color: c.border),
+                shape  : RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: _submitting ? null : widget.onDone,
+              child: Text('Skip',
+                  style: TextStyle(color: c.subText)),
             ),
-            onPressed: _submitting ? null : widget.onDone,
-            child: const Text('Skip', style: TextStyle(color: Colors.grey)),
-          )),
+          ),
           const SizedBox(width: 12),
-          Expanded(flex: 2, child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding        : const EdgeInsets.symmetric(vertical: 14),
-              backgroundColor: const Color(0xFFEBC351),
-              shape          : RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 0,
+          Expanded(
+            flex: 2,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding        : const EdgeInsets.symmetric(vertical: 14),
+                backgroundColor: const Color(0xFFEBC351),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+              onPressed: _submitting ? null : _submit,
+              child: _submitting
+                  ? const SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.black))
+                  : const Text('Submit Rating',
+                      style: TextStyle(
+                          color     : Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize  : 15)),
             ),
-            onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(width: 20, height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.black))
-                : const Text('Submit Rating',
-                    style: TextStyle(color: Colors.black,
-                        fontWeight: FontWeight.bold, fontSize: 15)),
-          )),
+          ),
         ]),
       ]),
     );

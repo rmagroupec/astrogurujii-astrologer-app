@@ -41,6 +41,7 @@ class _GalleryscreenState extends State<Galleryscreen> {
   void initState() {
     super.initState();
     _loadData();
+    
   }
 
   // ── Load gallery ──────────────────────────────────────────────────────────
@@ -50,7 +51,9 @@ class _GalleryscreenState extends State<Galleryscreen> {
       final response = await ApiService().getGalleryList();
       setState(() {
         data      = response.results;
+        print(response.results);
         isLoading = false;
+
       });
     } catch (e) {
       debugPrint('❌ Gallery load error: $e');
@@ -453,6 +456,12 @@ class _GalleryCardState extends State<_GalleryCard> {
   bool _toggling  = false;
   bool _deleting  = false;
 
+
+@override
+void initState() {
+  super.initState();
+  _enabled = widget.item.isEnabled;   // ← replaces hardcoded `true`
+}
   @override
   Widget build(BuildContext context) {
     final c      = widget.c;

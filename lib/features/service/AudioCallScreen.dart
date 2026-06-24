@@ -8,6 +8,7 @@ import 'package:astrologer_app/features/service/provider/audio_call_provider.dar
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:astrologer_app/MainNavScreen.dart';
 
 class AudioCallScreen extends StatefulWidget {
   final String channelId;
@@ -67,30 +68,32 @@ class _AudioCallScreenState extends State<AudioCallScreen>
       duration: const Duration(milliseconds: 1800),
     )..repeat();
   }
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  if (_initDone) return;
+  _initDone = true;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_initDone) return;
-    _initDone = true;
-
-    final provider = context.read<AudioCallProvider>();
-    if (widget.resumed) {
-      provider.expand();
-      provider.rewireCallback(
-        onEnded: (reason) { debugPrint('📞 [resumed] onEnded: $reason'); _doEnd(); },
-      );
-    } else {
-      provider.init(
-        channelId : widget.channelId,
-        token     : widget.token,
-        name      : widget.callerName,
-        image     : widget.callerImage,
-        onEnded   : (reason) { debugPrint('📞 onEnded: $reason'); _doEnd(); },
-      );
+  final provider = context.read<AudioCallProvider>();
+  if (widget.resumed) {
+    provider.expand();
+    provider.rewireCallback(
+      onEnded: (reason) { debugPrint('📞 [resumed] onEnded: $reason'); _doEnd(); },
+    );
+    // ✅ Re-sync Firebase timer on resume
+    if (provider.channelId.isNotEmpty) {
+      provider.listenCallSession(provider.channelId);
     }
+  } else {
+    provider.init(
+      channelId : widget.channelId,
+      token     : widget.token,
+      name      : widget.callerName,
+      image     : widget.callerImage,
+      onEnded   : (reason) { debugPrint('📞 onEnded: $reason'); _doEnd(); },
+    );
   }
-
+}
   @override
   void dispose() {
     _waveCtrl.dispose();
@@ -157,8 +160,7 @@ class _AudioCallScreenState extends State<AudioCallScreen>
         callerImage: widget.callerImage,
         duration   : provider.duration,
         onDone: (_) {
-          Navigator.pop(context);
-          Navigator.pop(context);
+          Navigator.of(context).popUntil((route) => route.isFirst);
         },
       ),
     );
@@ -181,7 +183,12 @@ class _AudioCallScreenState extends State<AudioCallScreen>
     final displayName = widget.userName.isNotEmpty ? widget.userName : widget.callerName;
 
     return WillPopScope(
-      onWillPop: () async { _minimize(); return false; },
+      onWillPop: () async {
+        
+        Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (_) =>  MainNavScreen()));
+         return false; },
       child: Scaffold(
         backgroundColor: isDark ? c.bg : _bgLight,
         body: SafeArea(
@@ -194,7 +201,11 @@ class _AudioCallScreenState extends State<AudioCallScreen>
                 child: Row(
                   children: [
                     GestureDetector(
-                      onTap: _minimize,
+                      onTap: (){
+                        Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (_) =>  MainNavScreen()));
+                      },
                       child: Container(
                         width: 36, height: 36,
                         decoration: BoxDecoration(
@@ -216,14 +227,33 @@ class _AudioCallScreenState extends State<AudioCallScreen>
                                   fontSize  : 16,
                                   fontWeight: FontWeight.w700,
                                   color     : isDark ? Colors.white : _darkText)),
-                          Text(
-                            isConnected ? provider.duration : 'Connecting…',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color   : isConnected
-                                    ? Colors.green.shade700
-                                    : Colors.grey.shade500),
-                          ),
+                          isConnected
+    ? (provider.isTimerReady
+        ? Text(
+            provider.duration,
+            style: TextStyle(
+                fontSize: 13,
+                color   : Colors.green.shade700),
+          )
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            SizedBox(
+              width: 10, height: 10,
+              child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color      : Colors.grey.shade500),
+            ),
+            const SizedBox(width: 5),
+            Text('Syncing…',
+                style: TextStyle(
+                    fontSize: 11,
+                    color   : Colors.grey.shade500)),
+          ]))
+    : Text(
+        'Connecting…',
+        style: TextStyle(
+            fontSize: 13,
+            color   : Colors.grey.shade500),
+      ),
                         ],
                       ),
                     ),

@@ -21,7 +21,7 @@ class Referastrologer extends StatefulWidget {
 class _ReferastrologerState extends State<Referastrologer> {
   static const String _playStoreUrl =
       'https://play.google.com/store/apps/details?id=com.astrologer.astro.astrogurujiii';
-
+    static const String _playStoreUrl1 = "https://play.google.com/store/apps/details?id=com.user.astrogurujii&hl=en_IN";
   String _referralCode = '...';
   bool   _loading      = true;
 
@@ -75,6 +75,25 @@ class _ReferastrologerState extends State<Referastrologer> {
     Share.share(msg,
         subject: 'Join AstroGuruJii — Referral Code: $_referralCode');
   }
+  void _share1() {
+  final msg = '''
+🔮 Discover AstroGuruJii – Your Trusted Astrology Companion!
+
+✨ Get personalized horoscope readings, live consultations with expert astrologers, kundli matching, daily predictions, and much more.
+
+🎁 Use my referral code: $_referralCode
+
+📲 Download the app now:
+$_playStoreUrl1
+
+Start your spiritual journey today with AstroGuruJii! 🌟
+''';
+
+  Share.share(
+    msg,
+    subject: 'Join AstroGuruJii with Referral Code: $_referralCode',
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -236,6 +255,54 @@ class _ReferastrologerState extends State<Referastrologer> {
                                       children: [
                                         Text(
                                           'AstroGuruJii – Astrologer App',
+                                          style: TextStyle(
+                                            fontSize  : FigmaSize.w(12),
+                                            fontWeight: FontWeight.w600,
+                                            color     : c.text,
+                                          ),
+                                        ),
+                                        SizedBox(height: FigmaSize.h(2)),
+                                        Text(
+                                          'play.google.com/store/apps',
+                                          style: TextStyle(
+                                            fontSize: FigmaSize.w(10),
+                                            color   : c.subText,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(Icons.share,
+                                      color: AppTheme.accentRed, size: 20),
+                                ],
+                              ),
+                            ),
+                          ),
+                           SizedBox(height: FigmaSize.h(16)),
+                           GestureDetector(
+                            onTap: _share1,
+                            child: Container(
+                              padding: EdgeInsets.all(FigmaSize.w(12)),
+                              decoration: BoxDecoration(
+                                color       : isDark
+                                    ? AppTheme.primaryYellow.withOpacity(0.08)
+                                    : const Color(0xFFFFFBE6),
+                                border      : Border.all(
+                                    color: AppTheme.primaryYellow),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.storefront_outlined,
+                                      color: Color(0xFFF5A623), size: 28),
+                                  SizedBox(width: FigmaSize.w(10)),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'AstroGuruJii – User App',
                                           style: TextStyle(
                                             fontSize  : FigmaSize.w(12),
                                             fontWeight: FontWeight.w600,

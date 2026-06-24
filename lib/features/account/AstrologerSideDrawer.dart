@@ -198,8 +198,19 @@ class _AstrologerProfileScreenState extends State<AstrologerProfileScreen> {
                           ],
                         ),
                       ),
-                      Icon(Icons.edit,
-                          color: AppTheme.accentRed, size: 20),
+                      GestureDetector(onTap:(){
+                     
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CompleteProfileScreen(
+          astrologerData: astrologerData!,
+        ),
+      ),
+    );
+  },
+                     child: Icon(Icons.edit,
+                          color: AppTheme.accentRed, size: 20)),
                     ],
                   ),
                 ),

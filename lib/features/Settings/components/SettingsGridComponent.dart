@@ -15,6 +15,7 @@ import 'package:astrologer_app/features/Settings/ReferAstrologer.dart';
 import 'package:astrologer_app/features/Settings/TermsAndConditions.dart';
 import 'package:astrologer_app/features/Settings/TrainingVideos.dart';
 import 'package:astrologer_app/features/Settings/UpdatePhoneNumber.dart';
+import 'package:astrologer_app/features/Settings/UpdateBillingAddress.dart';
 import 'package:astrologer_app/features/Settings/components/IconForSetting.dart';
 import 'package:flutter/material.dart';
 
@@ -82,7 +83,7 @@ class SettingsIconGrid extends StatelessWidget {
       {
         'icon' : 'bill.svg',
         'label': 'Update Billing Address',
-        'page' : const Invoice(),
+        'page' : const UpdateBillingAddress(),
       },
       {
         'icon' : 'invoice.svg',

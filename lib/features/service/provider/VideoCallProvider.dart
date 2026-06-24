@@ -1,29 +1,27 @@
-// lib/features/service/provider/VideoCallProvider.dart  (ASTROLOGER APP)
+// lib/features/service/provider/VideoCallProvider.dart
 //
-// FIXES:
-// 1. ✅ REMOVED setClientRole() separate call — throws AgoraRtcException in SDK v6
-//       Communication profile — was silently stopping execution before joinChannel
-// 2. ✅ uid: 2 — backend builds astro_agora_token for uid=2, must match
-// 3. ✅ All other logic preserved (minimize, expand, status updates, overlay)
+// FIX: minimize() now uses _safeNotifyDeferred() so the overlay's setState
+// is never called during the build phase — same pattern as AudioCallProvider.
+// This was why the video floating overlay never appeared after minimizing.
 
 import 'dart:async';
 import 'dart:convert';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:astrologer_app/features/service/active_call_store.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_database/firebase_database.dart';
+
 typedef OnCallEnded = void Function(String reason);
 
 class VideoCallProvider extends ChangeNotifier {
-  static const _appId    = '8782e154141a4c0bbc8acaa3004d21f2';
-  static const _baseUrl  = 'https://admin.astrogurujii.com';
-  final _storage         = const FlutterSecureStorage();
+  static const _appId   = '8782e154141a4c0bbc8acaa3004d21f2';
+  static const _baseUrl = 'https://admin.astrogurujii.com';
+  final _storage        = const FlutterSecureStorage();
 
   RtcEngine? _engine;
   int?       _remoteUid;
@@ -31,7 +29,7 @@ class VideoCallProvider extends ChangeNotifier {
   bool       _isDisposed = false;
 
   bool _remoteVideoOn = true;
-bool get remoteVideoOn => _remoteVideoOn;
+  bool get remoteVideoOn => _remoteVideoOn;
   bool _muted       = false;
   bool _speakerOn   = true;
   bool _isVideoOn   = true;
@@ -48,7 +46,9 @@ bool get remoteVideoOn => _remoteVideoOn;
 
   OnCallEnded? _onCallEnded;
 
-  // ── Getters ──────────────────────────────────────────────────────────────────
+  StreamSubscription<DatabaseEvent>? _callSessionSub;
+
+  // ── Getters ──────────────────────────────────────────────────────────────
   RtcEngine? get engine      => _engine;
   int?       get remoteUid   => _remoteUid;
   bool       get isJoined    => _isJoined;
@@ -66,70 +66,40 @@ bool get remoteVideoOn => _remoteVideoOn;
     return '$m:$s';
   }
 
-StreamSubscription<DatabaseEvent>? _callSessionSub;
+  // ── Safe notify ───────────────────────────────────────────────────────────
+  void _safeNotify() {
+    if (!_isDisposed) notifyListeners();
+  }
 
-void listenCallSession(String channelId) {
-  _callSessionSub?.cancel();
-  final ref = FirebaseDatabase.instanceFor(
-    app        : Firebase.app(),
-    databaseURL: 'https://astrogurujii-production-default-rtdb.firebaseio.com/',
-  ).ref().child('CallSession').child(channelId);
-
-  _callSessionSub = ref.onValue.listen((event) {
-    final data = event.snapshot.value;
-    if (data == null) return;
-    final map    = Map<String, dynamic>.from(data as Map);
-    final status = (map['status'] ?? '') as String;
-
-    if (['end_user', 'end_astro', 'wallet_empty'].contains(status) && !_isEnded) {
-      // Server ended the call
-      endLocalCall();
-      _onCallEnded?.call('Call ended');
-    }
-  });
-}
-
-// Call this in initAgora() after joining channel:
-void startDeduction({
-  required String channelId,
-  required Future<void> Function(String) deductApi,
-}) {
-  _deductTimer?.cancel();
-  _deductTimer = Timer.periodic(
-    const Duration(minutes: 1),
-    (_) => deductApi(channelId),
-  );
-  listenCallSession(channelId); // ← add this
-}
-  // ── Call status API ──────────────────────────────────────────────────────────
-  Future<void> _updateCallStatus(String status) async {
-    if (_channelId.isEmpty) return;
-    try {
-      final token = await _storage.read(key: 'auth_token') ?? '';
-      final res = await http.post(
-        Uri.parse('$_baseUrl/astrologer_api/call_status_update'),
-        headers: {
-          'Content-Type' : 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'channel_id': _channelId, 'status': status}),
-      );
-      debugPrint('📡 video call_status_update($status): ${res.body}');
-    } catch (e) {
-      debugPrint('❌ video call_status_update error: $e');
+  // ✅ FIX: Deferred notify — safe to call from build/dispose/didChangeDependencies
+  void _safeNotifyDeferred() {
+    if (_isDisposed) return;
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_isDisposed) notifyListeners();
+      });
+    } else {
+      notifyListeners();
     }
   }
 
-  // ── Init ─────────────────────────────────────────────────────────────────────
+  // ── Re-wire callback ──────────────────────────────────────────────────────
+  void rewireCallback({required OnCallEnded onEnded}) {
+    _onCallEnded = onEnded;
+    debugPrint('📹 VideoCallProvider: callback re-wired for resumed screen');
+  }
+
+  // ── Init Agora ────────────────────────────────────────────────────────────
   Future<void> initAgora({
-    required String  channelId,
-    required String  token,
-    String           name      = '',
-    String           image     = '',
-    OnCallEnded?     onEnded,
+    required String channelId,
+    required String token,
+    String       name    = '',
+    String       image   = '',
+    OnCallEnded? onEnded,
   }) async {
     if (_engine != null) {
-      _onCallEnded = onEnded;
+      if (onEnded != null) _onCallEnded = onEnded;
+      debugPrint('📹 initAgora skipped — engine already active');
       return;
     }
 
@@ -148,41 +118,38 @@ void startDeduction({
         appId         : _appId,
         channelProfile: ChannelProfileType.channelProfileCommunication,
       ));
-      debugPrint('✅ [ASTRO VIDEO] initialize OK');
     } on AgoraRtcException catch (e) {
-      debugPrint('❌ [ASTRO VIDEO] initialize failed: ${e.code} ${e.message}');
+      debugPrint('❌ [VIDEO] initialize failed: ${e.code} ${e.message}');
       return;
     }
 
     _engine!.registerEventHandler(RtcEngineEventHandler(
-      onError: (err, msg) {
-        debugPrint('❌ [ASTRO VIDEO] Agora error: code=$err | $msg');
-      },
+      onError: (err, msg) => debugPrint('❌ [VIDEO] error: $err $msg'),
 
       onJoinChannelSuccess: (connection, uid) async {
-        debugPrint('✅ [ASTRO VIDEO] Joined ch=${connection.channelId} uid=$uid');
+        debugPrint('✅ [VIDEO] joined uid=$uid');
         _isJoined = true;
         _safeNotify();
-        // Tell backend astrologer has joined Agora
         await _updateCallStatus('accept_astro');
       },
 
       onUserJoined: (connection, uid, elapsed) {
-        debugPrint('👤 [ASTRO VIDEO] Remote joined uid=$uid');
-        _remoteUid = uid;
+        debugPrint('👤 [VIDEO] remote joined uid=$uid');
+        _remoteUid     = uid;
+        _remoteVideoOn = true;
         _startDurationTimer();
         _engine?.setEnableSpeakerphone(true);
         _safeNotify();
       },
-     onRemoteVideoStateChanged: (connection, uid, state, reason, elapsed) {
-        debugPrint('📹 [ASTRO VIDEO] Remote video uid=$uid state=$state reason=$reason');
+
+      onRemoteVideoStateChanged: (connection, uid, state, reason, elapsed) {
         _remoteVideoOn = state == RemoteVideoState.remoteVideoStateDecoding ||
-                        state == RemoteVideoState.remoteVideoStateStarting;
+                         state == RemoteVideoState.remoteVideoStateStarting;
         _safeNotify();
       },
 
       onUserOffline: (connection, uid, reason) {
-        debugPrint('👤 [ASTRO VIDEO] Remote offline uid=$uid reason=$reason');
+        debugPrint('👤 [VIDEO] remote offline uid=$uid');
         _remoteUid = null;
         _durationTimer?.cancel();
         _safeNotify();
@@ -190,33 +157,22 @@ void startDeduction({
       },
 
       onLeaveChannel: (connection, stats) {
-        debugPrint('📴 [ASTRO VIDEO] Left channel');
         _isJoined = false;
         _safeNotify();
       },
 
-     
-
       onConnectionStateChanged: (connection, state, reason) {
-        debugPrint('🔗 [ASTRO VIDEO] Connection state=$state reason=$reason');
+        debugPrint('🔗 [VIDEO] connection state=$state reason=$reason');
       },
 
       onTokenPrivilegeWillExpire: (connection, token) {
-        debugPrint('⚠️ [ASTRO VIDEO] Token will expire soon');
+        debugPrint('⚠️ [VIDEO] token will expire');
       },
     ));
 
     try {
-      // ✅ FIX 1: NO setClientRole() here — removed entirely
-      // It throws AgoraRtcException in SDK v6 Communication profile
-      // Role is set ONLY inside ChannelMediaOptions below
-
       await _engine!.enableAudio();
-      debugPrint('✅ [ASTRO VIDEO] enableAudio OK');
-
       await _engine!.enableVideo();
-      debugPrint('✅ [ASTRO VIDEO] enableVideo OK');
-
       await _engine!.setVideoEncoderConfiguration(
         const VideoEncoderConfiguration(
           dimensions     : VideoDimensions(width: 640, height: 480),
@@ -225,59 +181,72 @@ void startDeduction({
           orientationMode: OrientationMode.orientationModeAdaptive,
         ),
       );
-      debugPrint('✅ [ASTRO VIDEO] setVideoEncoderConfig OK');
-
       await _engine!.startPreview();
-      debugPrint('✅ [ASTRO VIDEO] startPreview OK');
       _safeNotify();
 
-      debugPrint('▶ [ASTRO VIDEO] joinChannel ch=$channelId uid=2');
       await _engine!.joinChannel(
         token    : token,
         channelId: channelId,
-        uid      : 2,   // ✅ FIX 2: matches astro_agora_token built for uid=2
+        uid      : 2,
         options  : const ChannelMediaOptions(
           channelProfile        : ChannelProfileType.channelProfileCommunication,
-          clientRoleType        : ClientRoleType.clientRoleBroadcaster, // role set HERE
-          publishCameraTrack    : true,
+          clientRoleType        : ClientRoleType.clientRoleBroadcaster,
           publishMicrophoneTrack: true,
-          autoSubscribeVideo    : true,
+          publishCameraTrack    : true,
           autoSubscribeAudio    : true,
+          autoSubscribeVideo    : true,
         ),
       );
-      debugPrint('▶ [ASTRO VIDEO] joinChannel sent — waiting for onJoinChannelSuccess...');
-
-      await _engine!.setEnableSpeakerphone(true);
-
     } on AgoraRtcException catch (e) {
-      debugPrint('❌ [ASTRO VIDEO] AgoraRtcException: code=${e.code} msg=${e.message}');
-    } catch (e) {
-      debugPrint('❌ [ASTRO VIDEO] Unknown error: $e');
+      if (e.code == -17) {
+        debugPrint('⚠️ [VIDEO] joinChannel -17: already in channel — ignoring');
+      } else {
+        debugPrint('❌ [VIDEO] setup failed: ${e.code} ${e.message}');
+      }
     }
   }
 
-  // ── Deduction timer ──────────────────────────────────────────────────────────
-  // void startDeduction({
-  //   required String channelId,
-  //   required Future<void> Function(String) deductApi,
-  // }) {
-  //   _deductTimer?.cancel();
-  //   _deductTimer = Timer.periodic(
-  //     const Duration(minutes: 1),
-  //     (_) => deductApi(channelId),
-  //   );
-  // }
+  // ── Deduction + Firebase ──────────────────────────────────────────────────
+  void startDeduction({
+    required String channelId,
+    required Future<void> Function(String) deductApi,
+  }) {
+    _deductTimer?.cancel();
+    _deductTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => deductApi(channelId),
+    );
+    listenCallSession(channelId);
+  }
+
+  void listenCallSession(String channelId) {
+    _callSessionSub?.cancel();
+    final ref = FirebaseDatabase.instanceFor(
+      app        : Firebase.app(),
+      databaseURL: 'https://astrogurujii-production-default-rtdb.firebaseio.com/',
+    ).ref().child('CallSession').child(channelId);
+
+    _callSessionSub = ref.onValue.listen((event) {
+      final data = event.snapshot.value;
+      if (data == null) return;
+      final map    = Map<String, dynamic>.from(data as Map);
+      final status = (map['status'] ?? '') as String;
+      if (['end_user', 'end_astro', 'wallet_empty'].contains(status) && !_isEnded) {
+        endLocalCall();
+        _onCallEnded?.call('Call ended');
+      }
+    });
+  }
 
   void _startDurationTimer() {
     _durationTimer?.cancel();
-    _callDuration = Duration.zero;
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _callDuration += const Duration(seconds: 1);
       _safeNotify();
     });
   }
 
-  // ── Controls ─────────────────────────────────────────────────────────────────
+  // ── Controls ──────────────────────────────────────────────────────────────
   Future<void> toggleMute() async {
     _muted = !_muted;
     await _engine?.muteLocalAudioStream(_muted);
@@ -304,28 +273,32 @@ void startDeduction({
     await _engine?.muteLocalVideoStream(mute);
   }
 
-  // ── Minimize / Expand ────────────────────────────────────────────────────────
+  // ── Minimize ──────────────────────────────────────────────────────────────
+  // ✅ FIX: use _safeNotifyDeferred so overlay setState is never called
+  // during the build phase (which silently prevented the pill from appearing)
   void minimize() {
     _isMinimized = true;
     _engine?.muteLocalVideoStream(true);
-    _safeNotify();
+    _safeNotifyDeferred();
   }
 
+  // ── Expand ────────────────────────────────────────────────────────────────
   void expand() {
     _isMinimized = false;
     if (_isVideoOn) _engine?.muteLocalVideoStream(false);
-    _safeNotify();
+    if (_remoteUid != null) _remoteVideoOn = true;
+    _safeNotifyDeferred();
   }
 
-  // ── End call ──────────────────────────────────────────────────────────────────
+  // ── End call ──────────────────────────────────────────────────────────────
   Future<void> endLocalCall() async {
     if (_isEnded) return;
     _isEnded     = true;
     _isMinimized = false;
     _deductTimer?.cancel();
-     _callSessionSub?.cancel();
+    _callSessionSub?.cancel();
     _durationTimer?.cancel();
-await ActiveCallStore.clear();
+    await ActiveCallStore.clear();
     await _updateCallStatus('end_astro');
 
     try { await _engine?.leaveChannel(); }  catch (e) { debugPrint('leaveChannel: $e'); }
@@ -343,14 +316,28 @@ await ActiveCallStore.clear();
     _safeNotify();
   }
 
-  void _safeNotify() {
-    if (!_isDisposed) notifyListeners();
+  Future<void> _updateCallStatus(String status) async {
+    if (_channelId.isEmpty) return;
+    try {
+      final token = await _storage.read(key: 'auth_token') ?? '';
+      await http.post(
+        Uri.parse('$_baseUrl/astrologer_api/call_status_update'),
+        headers: {
+          'Content-Type' : 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'channel_id': _channelId, 'status': status}),
+      );
+    } catch (e) {
+      debugPrint('❌ _updateCallStatus($status): $e');
+    }
   }
 
   @override
   void dispose() {
     _isDisposed = true;
     _deductTimer?.cancel();
+    _callSessionSub?.cancel();
     _durationTimer?.cancel();
     try { _engine?.release(); } catch (_) {}
     _engine = null;

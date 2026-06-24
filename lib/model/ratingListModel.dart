@@ -18,17 +18,25 @@ class RatingListResponse {
   final bool status;
   final String message;
   final List<RatingItem> results;
+  
+  // ── ADDED FIELDS FOR FLAGGED DATA METRICS ───────────────────
+  final String? flaggedRatio;
+  final double? flaggedValue;
 
   RatingListResponse({
     required this.status,
     required this.message,
     required this.results,
+    this.flaggedRatio,
+    this.flaggedValue,
   });
 
   factory RatingListResponse.fromJson(Map<String, dynamic> json) {
     return RatingListResponse(
       status: json['status'] ?? false,
       message: json['message'] ?? '',
+      flaggedRatio: json['flagged_ratio'] ?? '0/10',
+      flaggedValue: _toDouble(json['flagged_value']),
       results: (json['results'] as List<dynamic>? ?? [])
           .map((e) => RatingItem.fromJson(e))
           .toList(),
@@ -39,6 +47,8 @@ class RatingListResponse {
     return {
       'status': status,
       'message': message,
+      'flagged_ratio': flaggedRatio,
+      'flagged_value': flaggedValue,
       'results': results.map((e) => e.toJson()).toList(),
     };
   }
@@ -56,6 +66,12 @@ class RatingItem {
   final String review;
   final String astrologerComment;
   final DateTime createdDate;
+  
+  // ── ADDED FIELDS FOR DYNAMIC FILTERING & ACTIONS ───────────
+  final String type; // 'chat', 'voice', 'video', 'astromall'
+  final bool isPinned;
+   final String   callType;
+  final bool isFlagged;
 
   RatingItem({
     required this.id,
@@ -65,6 +81,10 @@ class RatingItem {
     required this.review,
     required this.astrologerComment,
     required this.createdDate,
+    required this.type,
+    required this.isPinned,
+    required this.callType,
+    required this.isFlagged,
   });
 
   factory RatingItem.fromJson(Map<String, dynamic> json) {
@@ -76,6 +96,11 @@ class RatingItem {
       review: json['review'] ?? '',
       astrologerComment: json['astr_comment'] ?? '',
       createdDate: _toDate(json['Created_date']),
+      // Map the newly created fields with safe fallbacks
+      type: json['type'] ?? 'chat',
+      isPinned: json['is_pinned'] ?? false,
+      callType          : json['call_type']?.toString()    ?? 'chat',
+      isFlagged: json['is_flagged'] ?? false,
     );
   }
 
@@ -88,6 +113,10 @@ class RatingItem {
       'review': review,
       'astr_comment': astrologerComment,
       'Created_date': createdDate.toIso8601String(),
+      'type': type,
+      'call_type'   : callType,
+      'is_pinned': isPinned,
+      'is_flagged': isFlagged,
     };
   }
 
@@ -113,6 +142,11 @@ class RatingItem {
 int _toInt(dynamic value) {
   if (value == null) return 0;
   return int.tryParse(value.toString()) ?? 0;
+}
+
+double _toDouble(dynamic value) {
+  if (value == null) return 0.0;
+  return double.tryParse(value.toString()) ?? 0.0;
 }
 
 DateTime _toDate(dynamic value) {

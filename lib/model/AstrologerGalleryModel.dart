@@ -47,44 +47,43 @@ class AstrologerGalleryResponse {
 /// ===============================
 /// Gallery Item Model
 /// ===============================
-
 class AstrologerGalleryItem {
   final String id;
   final String astrologerId;
   final String file;
+  final String status;
   final DateTime createdDate;
 
   AstrologerGalleryItem({
     required this.id,
     required this.astrologerId,
     required this.file,
+    this.status = 'on',
     required this.createdDate,
   });
 
   factory AstrologerGalleryItem.fromJson(Map<String, dynamic> json) {
     return AstrologerGalleryItem(
-      id: json['id'] ?? '',
-      astrologerId: json['astrologer_id'] ?? '',
-      file: json['file'] ?? '',
-      createdDate: _toDate(json['Created_date']),
+      id           : json['id']            ?? '',
+      astrologerId : json['astrologer_id'] ?? '',
+      file         : json['file']          ?? '',
+      status       : json['status']        ?? 'on',
+      createdDate  : _toDate(json['Created_date']),
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'astrologer_id': astrologerId,
-      'file': file,
-      'Created_date': createdDate.toIso8601String(),
-    };
-  }
+  Map<String, dynamic> toJson() => {   // ← this was missing
+    'id'           : id,
+    'astrologer_id': astrologerId,
+    'file'         : file,
+    'status'       : status,
+    'Created_date' : createdDate.toIso8601String(),
+  };
 
-  /// ===============================
-  /// Computed Helpers (Optional)
-  /// ===============================
-
-  bool get hasFile => file.isNotEmpty;
+  bool get hasFile   => file.isNotEmpty;
+  bool get isEnabled => status == 'on';
 }
+ 
 
 /// ===============================
 /// Safe Date Parsing

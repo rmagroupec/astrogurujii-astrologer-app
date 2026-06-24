@@ -198,17 +198,37 @@ class NavigationManager {
   }
 
   // ── Open screens ───────────────────────────────────────────────────────────
-
-  Future<void> openAudioCallScreen({
+ Future<void> openAudioCallScreen({
     required String channelId,
     required String token,
     String userName   = '',
     String userAvatar = '',
   }) async {
+    // ✅ FIX: If audio provider already active on this channel, just expand it.
+    if (activeAudioProvider != null &&
+        activeAudioProvider!.isActive &&
+        activeAudioProvider!.channelId == channelId) {
+      debugPrint('📞 openAudioCallScreen: call already active — expanding');
+      activeAudioProvider!.expand();
+      final navigator = await _waitForNavigator();
+      navigator?.push(MaterialPageRoute(
+        builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
+          value: activeAudioProvider!,
+          child: AudioCallScreen(
+            channelId  : channelId,
+            token      : '',
+            callerName : activeAudioProvider!.callerName,
+            callerImage: activeAudioProvider!.callerImage,
+            resumed    : true,   // ← re-wire callback only, no re-init
+          ),
+        ),
+      ));
+      return;
+    }
+ 
     final navigator = await _waitForNavigator();
     if (navigator == null) return;
-
-    // ✅ Persist so SplashScreen can restore if process is killed
+ 
     await ActiveCallStore.save(
       type      : ActiveCallType.audio,
       channelId : channelId,
@@ -216,10 +236,10 @@ class NavigationManager {
       userName  : userName,
       userAvatar: userAvatar,
     );
-
+ 
     final provider = AudioCallProvider();
     activeAudioProvider = provider;
-
+ 
     navigator.push(MaterialPageRoute(
       builder: (_) => ChangeNotifierProvider<AudioCallProvider>.value(
         value: provider,
@@ -233,16 +253,37 @@ class NavigationManager {
     ));
   }
 
-  Future<void> openVideoCallScreen({
+Future<void> openVideoCallScreen({
     required String channelId,
     required String token,
     String userName   = '',
     String userAvatar = '',
   }) async {
+    // ✅ FIX: If video provider already active on this channel, just expand it.
+    if (activeVideoProvider != null &&
+        activeVideoProvider!.isActive &&
+        activeVideoProvider!.channelId == channelId) {
+      debugPrint('📹 openVideoCallScreen: call already active — expanding');
+      activeVideoProvider!.expand();
+      final navigator = await _waitForNavigator();
+      navigator?.push(MaterialPageRoute(
+        builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
+          value: activeVideoProvider!,
+          child: VideoCallScreen(
+            channelId : channelId,
+            token     : '',
+            userName  : activeVideoProvider!.callerName,
+            userAvatar: activeVideoProvider!.callerImage,
+            resumed   : true,   // ← re-wire callback only, no re-init
+          ),
+        ),
+      ));
+      return;
+    }
+ 
     final navigator = await _waitForNavigator();
     if (navigator == null) return;
-
-    // ✅ Persist so SplashScreen can restore if process is killed
+ 
     await ActiveCallStore.save(
       type      : ActiveCallType.video,
       channelId : channelId,
@@ -250,10 +291,10 @@ class NavigationManager {
       userName  : userName,
       userAvatar: userAvatar,
     );
-
+ 
     final provider = VideoCallProvider();
     activeVideoProvider = provider;
-
+ 
     navigator.push(MaterialPageRoute(
       builder: (_) => ChangeNotifierProvider<VideoCallProvider>.value(
         value: provider,

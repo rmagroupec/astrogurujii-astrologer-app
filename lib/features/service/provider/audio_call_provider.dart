@@ -1,16 +1,4 @@
 // lib/features/service/provider/audio_call_provider.dart
-//
-// FIX: "setState() called during build" crash
-//
-// CAUSE:
-//   AudioCallScreen.didChangeDependencies() runs during first build.
-//   It calls provider.expand() → _notify() → notifyListeners()
-//   → overlay's _onProviderChanged() → setState() ← ILLEGAL during build.
-//
-// FIX:
-//   minimize() and expand() defer notifyListeners() via addPostFrameCallback
-//   so they are safe to call from didChangeDependencies / initState / build.
-//   All other _notify() calls (Agora callbacks, timers) are already async-safe.
 
 import 'dart:async';
 import 'dart:convert';
@@ -23,6 +11,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
+
 typedef OnAudioCallEnded = void Function(String reason);
 
 class AudioCallProvider extends ChangeNotifier {
@@ -39,7 +28,8 @@ class AudioCallProvider extends ChangeNotifier {
   bool _onHold       = false;
   bool _isMinimized  = false;
   bool _isEnded      = false;
-Timer?   _deductTimer;
+
+  Timer?   _deductTimer;
   Timer?   _durationTimer;
   Duration _callDuration = Duration.zero;
 
@@ -49,14 +39,18 @@ Timer?   _deductTimer;
 
   OnAudioCallEnded? _onCallEnded;
 
+  StreamSubscription<DatabaseEvent>? _callSessionSub;
+
   // ── Getters ───────────────────────────────────────────────────────────────
   bool   get joined       => _joined;
   bool   get remoteJoined => _remoteJoined;
+  bool   get isTimerReady => _remoteJoined;  // alias used by AudioCallScreen
   bool   get muted        => _muted;
   bool   get speakerOn    => _speakerOn;
   bool   get onHold       => _onHold;
   bool   get isMinimized  => _isMinimized;
   bool   get isEnded      => _isEnded;
+  bool   get isActive     => !_isEnded;
   String get channelId    => _channelId;
 
   String get duration {
@@ -73,8 +67,7 @@ Timer?   _deductTimer;
     try {
       final token = await _getToken();
       await http.post(
-        Uri.parse(
-            'https://admin.astrogurujii.com/astrologer_api/call_status_update'),
+        Uri.parse('https://admin.astrogurujii.com/astrologer_api/call_status_update'),
         headers: {
           'Content-Type' : 'application/json',
           'Authorization': 'Bearer $token',
@@ -85,62 +78,14 @@ Timer?   _deductTimer;
       debugPrint('❌ _updateStatus($status): $e');
     }
   }
-StreamSubscription<DatabaseEvent>? _callSessionSub;
-
-void listenCallSession(String channelId) {
-  _callSessionSub?.cancel();
-  final ref = FirebaseDatabase.instanceFor(
-    app        : Firebase.app(),
-    databaseURL: 'https://astrogurujii-production-default-rtdb.firebaseio.com/',
-  ).ref().child('CallSession').child(channelId);
-
-  _callSessionSub = ref.onValue.listen((event) {
-    final data = event.snapshot.value;
-    if (data == null) return;
-    final map    = Map<String, dynamic>.from(data as Map);
-    final status = (map['status'] ?? '') as String;
-
-    if (['end_user', 'end_astro', 'wallet_empty'].contains(status) && !_isEnded) {
-      // Server ended the call
-      end();
-      _onCallEnded?.call('Call ended');
-    }
-  });
-}
-
-// Call this in initAgora() after joining channel:
-void startDeduction({
-  required String channelId,
-  required Future<void> Function(String) deductApi,
-}) {
-  _deductTimer?.cancel();
-  _deductTimer = Timer.periodic(
-    const Duration(minutes: 1),
-    (_) => deductApi(channelId),
-  );
-  listenCallSession(channelId); // ← add this
-}
-  void _startTimer() {
-    _durationTimer?.cancel();
-    _callDuration = Duration.zero;
-    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _callDuration += const Duration(seconds: 1);
-      _notify();
-    });
-  }
 
   // ── Safe notify ───────────────────────────────────────────────────────────
-  // For most calls (timers, Agora callbacks) — fires immediately.
   void _notify() {
     if (!_disposed) notifyListeners();
   }
 
-  // ✅ FIX: For calls that may happen during build (minimize/expand called
-  // from didChangeDependencies or initState), defer to post-frame so we
-  // never call setState() on the overlay while the framework is building.
   void _notifyDeferred() {
     if (_disposed) return;
-    // If a frame is already scheduled / we're in the build phase, defer.
     if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_disposed) notifyListeners();
@@ -150,34 +95,56 @@ void startDeduction({
     }
   }
 
-  // ── Re-wire callback (for resumed screens) ────────────────────────────────
+  // ── Re-wire callback only — NO engine changes ─────────────────────────────
+  // Call this when screen is resumed from floating overlay.
+  // Engine is still running, remote is still joined — just re-attach callback.
   void rewireCallback({required OnAudioCallEnded onEnded}) {
     _onCallEnded = onEnded;
     debugPrint('📞 AudioCallProvider: callback re-wired for resumed screen');
   }
 
-  // ── Minimize / Expand ─────────────────────────────────────────────────────
-  // ✅ Use _notifyDeferred — these are called from didChangeDependencies
+  // ── Minimize ──────────────────────────────────────────────────────────────
   void minimize() {
     _isMinimized = true;
     _notifyDeferred();
   }
 
+  // ── Expand ────────────────────────────────────────────────────────────────
+  // Restores timer if remote was already joined while minimized.
   void expand() {
     _isMinimized = false;
+    if (_remoteJoined && (_durationTimer == null || !_durationTimer!.isActive)) {
+      debugPrint('📞 expand(): remote already joined — restarting timer');
+      _restartTimer();
+    }
     _notifyDeferred();
   }
 
   // ── INIT ──────────────────────────────────────────────────────────────────
+  // ✅ GUARD: if engine already exists, ONLY re-wire the callback and return.
+  // This prevents the -17 "already in channel" crash when init() is called
+  // on a resumed screen (e.g. if didChangeDependencies fires twice).
   Future<void> init({
     required String        channelId,
     required String        token,
-    required String        name,
-    required String        image,
+    String                 name    = '',
+    String                 image   = '',
     OnAudioCallEnded?      onEnded,
   }) async {
+    // ✅ KEY GUARD: engine already running means call is active.
+    // Just re-wire the callback — never re-initialize or re-join.
+    if (_engine != null) {
+      debugPrint('📞 init() called but engine already active — rewiring callback only');
+      if (onEnded != null) _onCallEnded = onEnded;
+      // Restart timer if remote is joined but timer died
+      if (_remoteJoined && (_durationTimer == null || !_durationTimer!.isActive)) {
+        _restartTimer();
+      }
+      _notifyDeferred();
+      return;
+    }
+
     if (onEnded != null) _onCallEnded = onEnded;
-    if (_engine != null) return;
 
     _channelId  = channelId;
     callerName  = name;
@@ -208,7 +175,7 @@ void startDeduction({
         debugPrint('👤 Audio remote joined uid=$uid');
         await _engine?.muteRemoteAudioStream(uid: uid, mute: false);
         _remoteJoined = true;
-        _startTimer();
+        _restartTimer();
         Future.delayed(const Duration(milliseconds: 300), () async {
           try {
             await _engine?.setEnableSpeakerphone(true);
@@ -231,14 +198,14 @@ void startDeduction({
       onRemoteAudioStateChanged: (_, uid, state, reason, __) {
         if (state == RemoteAudioState.remoteAudioStateDecoding && !_remoteJoined) {
           _remoteJoined = true;
-          _startTimer();
+          _restartTimer();
           _notify();
-        } else if (state  == RemoteAudioState.remoteAudioStateStopped &&
+        } else if (state == RemoteAudioState.remoteAudioStateStopped &&
                    reason == RemoteAudioStateReason.remoteAudioReasonRemoteOffline) {
-          debugPrint('⚠️ Audio remote offline via state change');
           if (_remoteJoined) {
             _remoteJoined = false;
             _durationTimer?.cancel();
+            _durationTimer = null;
             _notify();
             Future.microtask(() => _onCallEnded?.call('User disconnected'));
           }
@@ -252,6 +219,7 @@ void startDeduction({
             _remoteJoined) {
           _remoteJoined = false;
           _durationTimer?.cancel();
+          _durationTimer = null;
           _notify();
           Future.microtask(() => _onCallEnded?.call('Network disconnected'));
         }
@@ -266,18 +234,69 @@ void startDeduction({
     ));
 
     await _engine!.enableAudio();
-    await _engine!.joinChannel(
-      token    : token,
-      channelId: channelId,
-      uid      : 2,
-      options  : const ChannelMediaOptions(
-        publishMicrophoneTrack       : true,
-        clientRoleType               : ClientRoleType.clientRoleBroadcaster,
-        autoSubscribeAudio           : true,
-        autoSubscribeVideo           : false,
-        enableAudioRecordingOrPlayout: true,
-      ),
+
+    try {
+      await _engine!.joinChannel(
+        token    : token,
+        channelId: channelId,
+        uid      : 2,
+        options  : const ChannelMediaOptions(
+          publishMicrophoneTrack       : true,
+          clientRoleType               : ClientRoleType.clientRoleBroadcaster,
+          autoSubscribeAudio           : true,
+          autoSubscribeVideo           : false,
+          enableAudioRecordingOrPlayout: true,
+        ),
+      );
+    } on AgoraRtcException catch (e) {
+      // -17 = already in channel — safe to ignore, engine is running fine
+      if (e.code == -17) {
+        debugPrint('⚠️ joinChannel -17: already in channel — ignoring');
+      } else {
+        debugPrint('❌ joinChannel failed: ${e.code} ${e.message}');
+      }
+    }
+  }
+
+  // ── Deduction + Firebase session listener ─────────────────────────────────
+  void startDeduction({
+    required String channelId,
+    required Future<void> Function(String) deductApi,
+  }) {
+    _deductTimer?.cancel();
+    _deductTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => deductApi(channelId),
     );
+    listenCallSession(channelId);
+  }
+
+  void listenCallSession(String channelId) {
+    _callSessionSub?.cancel();
+    final ref = FirebaseDatabase.instanceFor(
+      app        : Firebase.app(),
+      databaseURL: 'https://astrogurujii-production-default-rtdb.firebaseio.com/',
+    ).ref().child('CallSession').child(channelId);
+
+    _callSessionSub = ref.onValue.listen((event) {
+      final data = event.snapshot.value;
+      if (data == null) return;
+      final map    = Map<String, dynamic>.from(data as Map);
+      final status = (map['status'] ?? '') as String;
+      if (['end_user', 'end_astro', 'wallet_empty'].contains(status) && !_isEnded) {
+        end();
+        _onCallEnded?.call('Call ended');
+      }
+    });
+  }
+
+  // ── Timer — does NOT reset _callDuration so elapsed time is preserved ─────
+  void _restartTimer() {
+    _durationTimer?.cancel();
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _callDuration += const Duration(seconds: 1);
+      _notify();
+    });
   }
 
   // ── Controls ─────────────────────────────────────────────────────────────
@@ -307,9 +326,10 @@ void startDeduction({
     _isMinimized = false;
 
     _durationTimer?.cancel();
-    _deductTimer?.cancel(); 
+    _deductTimer?.cancel();
+    _callSessionSub?.cancel();
     _durationTimer = null;
- _callSessionSub?.cancel();
+
     await _updateStatus('end_astro');
 
     if (_engine != null) {
@@ -332,7 +352,8 @@ void startDeduction({
   void dispose() {
     _disposed = true;
     _durationTimer?.cancel();
-    _deductTimer?.cancel(); 
+    _deductTimer?.cancel();
+    _callSessionSub?.cancel();
     try { _engine?.release(); } catch (_) {}
     _engine = null;
     super.dispose();

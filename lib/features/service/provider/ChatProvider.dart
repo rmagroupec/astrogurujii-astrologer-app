@@ -92,6 +92,9 @@ StreamSubscription<DatabaseEvent>? _callSessionSub;
 static const _dbUrl =
     'https://astrogurujii-production-default-rtdb.firebaseio.com/';
 
+DateTime? _sessionStartTime;
+bool _isTimerReady = false;
+bool get isTimerReady => _isTimerReady;
 void listenCallSession(String channelId) {
   _callSessionSub?.cancel();
   final ref = FirebaseDatabase.instanceFor(
@@ -99,16 +102,57 @@ void listenCallSession(String channelId) {
     databaseURL: _dbUrl,
   ).ref().child('CallSession').child(channelId);
 
-  _callSessionSub = ref.onValue.listen((event) {
-    final data = event.snapshot.value;
-    if (data == null) return;
-    final map    = Map<String, dynamic>.from(data as Map);
-    final status = (map['status'] ?? '') as String;
+  debugPrint('🔥 listenCallSession started for: $channelId');
 
+  _callSessionSub = ref.onValue.listen((event) {
+    debugPrint('🔥 CallSession snapshot received');
+    
+    final data = event.snapshot.value;
+    debugPrint('🔥 snapshot data: $data');
+    
+    if (data == null) {
+      debugPrint('❌ snapshot data is NULL — check channelId or RTDB rules');
+      return;
+    }
+    
+    final map = Map<String, dynamic>.from(data as Map);
+    debugPrint('🔥 map: $map');
+    
+    final startedAt = map['started_at'];
+    debugPrint('🔥 started_at: $startedAt  |  _sessionStartTime: $_sessionStartTime');
+
+    if (_sessionStartTime == null) {
+      if (startedAt != null) {
+        _sessionStartTime = DateTime.fromMillisecondsSinceEpoch(
+            (startedAt as num).toInt());
+        debugPrint('✅ _sessionStartTime set to: $_sessionStartTime');
+        _startSessionTimer();
+        debugPrint('✅ _startSessionTimer() called');
+      } else {
+        debugPrint('❌ started_at is NULL in map — key missing in RTDB?');
+      }
+    } else {
+      debugPrint('ℹ️ _sessionStartTime already set, skipping');
+    }
+
+    final status = (map['status'] ?? '') as String;
+    debugPrint('🔥 status: $status');
     if (['end_user', 'wallet_empty'].contains(status)) {
-      // User ran out of wallet or ended from their side
       handleChatEnded('Chat ended by user');
     }
+  }, onError: (e) {
+    debugPrint('❌ listenCallSession error: $e');
+  });
+}
+void _startSessionTimer() {
+  _isTimerReady = true;  // ✅ timer is now synced with Firebase
+  _safeNotify();
+  _sessionTimer?.cancel();
+  _sessionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _sessionSeconds = DateTime.now()
+        .difference(_sessionStartTime!)
+        .inSeconds;
+    _safeNotify();
   });
 }
   // ── INITIALIZE ──────────────────────────────────────────────────────────────
@@ -133,17 +177,10 @@ void listenCallSession(String channelId) {
     _chatEnded  = false;
 listenCallSession(groupId); 
     _listenMessages();
-    _startSessionTimer();
   }
 
   // ── Session timer ───────────────────────────────────────────────────────────
-  void _startSessionTimer() {
-    _sessionTimer?.cancel();
-    _sessionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _sessionSeconds++;
-      _safeNotify();
-    });
-  }
+ 
 
   void _stopSessionTimer() {
     _sessionTimer?.cancel();

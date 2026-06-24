@@ -16,6 +16,7 @@ import 'package:astrologer_app/features/service/IncomingChatScreen.dart';
 import 'package:astrologer_app/features/service/IncomingVideoCallScreen.dart';
 import 'package:astrologer_app/features/service/provider/ChatProvider.dart';
 import 'package:astrologer_app/features/service/service/navigationservice.dart';
+import 'package:astrologer_app/features/Settings/MainSettingScreen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -26,8 +27,9 @@ class HomeIconGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     // 1. Define your data in a simple list
     final List<Map<String, dynamic>> menuItems = [
-      {"icon": "phone.svg", "label": "Call","page": MainReportsScreen(page: "audio",)},
       {"icon": "chat.svg", "label": "Chat","page": MainReportsScreen(page: "chat",)},
+      {"icon": "phone.svg", "label": "Call","page": MainReportsScreen(page: "audio",)},
+      
       {"icon": "videocall.svg", "label": "Video Call","page": MainReportsScreen(page: "video",)},
       {"icon": "online-shopping.svg", "label": "AstroMall","page":MainReportsScreen(page: "Astromall",)},
       {"icon": "live.svg", "label": "Go Live", "page":LiveEventListScreen()},
@@ -38,6 +40,14 @@ class HomeIconGrid extends StatelessWidget {
       {"icon": "review.svg", "label": "Reviews", "page":MyReviewsScreen()},
       {"icon": "wallet2.svg", "label": "Wallet","page": WalletScreen()},
       {"icon": "user (1) 1.svg", "label": "Profile", "page":AstrologerProfileScreen()
+    
+
+
+
+
+
+    },
+    {"icon": "settings.svg", "label": "Settings", "page":Mainsettingscreen()
     
 
 

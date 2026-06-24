@@ -1,10 +1,13 @@
 // lib/features/account/CompleteProfileScreen.dart
-// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
-// ── Zero logic changes ────────────────────────────────────────────────────────
+// ── All original fields preserved ────────────────────────────────────────────
+// ── State + City replaced with dropdowns from location_list API ───────────────
+// ── Theme-aware: AppColors + AppTheme tokens ──────────────────────────────────
 
 import 'dart:convert';
+
 import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
+import 'package:astrologer_app/model/LocationModel.dart';
 import 'package:astrologer_app/model/astrologerProfileModel.dart';
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:astrologer_app/service/apiService.dart';
@@ -19,16 +22,25 @@ class CompleteProfileScreen extends StatefulWidget {
 }
 
 class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
-  // ── Controllers ────────────────────────────────────────────────────────────
+  // ── Controllers (same as original) ────────────────────────────────────────
   final _dobCtrl     = TextEditingController();
   final _tobCtrl     = TextEditingController();
   final _pobCtrl     = TextEditingController();
   final _faithCtrl   = TextEditingController();
   final _addressCtrl = TextEditingController();
-  final _cityCtrl    = TextEditingController();
   final _aboutCtrl   = TextEditingController();
   final _bioCtrl     = TextEditingController();
 
+  // ── Location dropdowns (replaces _cityCtrl) ───────────────────────────────
+  String             _indiaId       = '';
+  List<LocationItem> _states        = [];
+  List<LocationItem> _cities        = [];
+  LocationItem?      _selectedState;
+  LocationItem?      _selectedCity;
+  bool               _statesLoading = false;
+  bool               _citiesLoading = false;
+
+  // ── Page state ─────────────────────────────────────────────────────────────
   bool        _isSubmitting   = false;
   bool        _loadingProfile = true;
   Astrologer? _astro;
@@ -36,40 +48,116 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchAndPrefill();
+    _init();
   }
 
   @override
   void dispose() {
-    _dobCtrl.dispose();     _tobCtrl.dispose();
-    _pobCtrl.dispose();     _faithCtrl.dispose();
-    _addressCtrl.dispose(); _cityCtrl.dispose();
-    _aboutCtrl.dispose();   _bioCtrl.dispose();
+    _dobCtrl.dispose();
+    _tobCtrl.dispose();
+    _pobCtrl.dispose();
+    _faithCtrl.dispose();
+    _addressCtrl.dispose();
+    _aboutCtrl.dispose();
+    _bioCtrl.dispose();
     super.dispose();
   }
 
-  // ── Fetch & prefill ────────────────────────────────────────────────────────
-  Future<void> _fetchAndPrefill() async {
+  // ── Load profile + locations ───────────────────────────────────────────────
+  Future<void> _init() async {
     if (mounted) setState(() => _loadingProfile = true);
     try {
+      // 1. Fetch profile
       final res = await ApiService().get_astrologer_profile();
-      if (!mounted) return;
-      final a = res.results.isNotEmpty ? res.results[0] : widget.astrologerData;
+      final a   = res.results.isNotEmpty
+          ? res.results.first
+          : widget.astrologerData;
       _astro = a;
       _prefill(a);
-    } catch (_) {
-      if (mounted) { _astro = widget.astrologerData; _prefill(widget.astrologerData); }
+
+      // 2. Find India's ID from country list
+      setState(() => _statesLoading = true);
+      final countryRes = await ApiService().getCountryList();
+      LocationItem? india;
+      try {
+        india = countryRes.results
+            .firstWhere((c) => c.name.toLowerCase().contains('india'));
+      } catch (_) {
+        if (countryRes.results.isNotEmpty) india = countryRes.results.first;
+      }
+
+      if (india != null) {
+        _indiaId = india.id;
+
+        // 3. Load states
+        final stateRes = await ApiService().getStateList(_indiaId);
+        _states = stateRes.results;
+
+        // 4. Pre-select state from saved stateId
+        if (a.stateId.isNotEmpty) {
+          try {
+            _selectedState =
+                _states.firstWhere((s) => s.id == a.stateId);
+          } catch (_) {
+            _selectedState = null;
+          }
+
+          // 5. Load cities for that state
+          if (_selectedState != null) {
+            setState(() => _citiesLoading = true);
+            final cityRes = await ApiService()
+                .getCityList(_indiaId, _selectedState!.id);
+            _cities = cityRes.results;
+
+            // 6. Pre-select city from saved cityId
+            if (a.cityId.isNotEmpty) {
+              try {
+                _selectedCity =
+                    _cities.firstWhere((c) => c.id == a.cityId);
+              } catch (_) {
+                _selectedCity = null;
+              }
+            }
+            if (mounted) setState(() => _citiesLoading = false);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ _init error: $e');
+      if (mounted) {
+        _astro = widget.astrologerData;
+        _prefill(widget.astrologerData);
+      }
     } finally {
-      if (mounted) setState(() => _loadingProfile = false);
+      if (mounted) setState(() {
+        _loadingProfile = false;
+        _statesLoading  = false;
+      });
     }
   }
 
   void _prefill(Astrologer a) {
     _dobCtrl.text     = a.dob;
-    _pobCtrl.text     = a.address;
+    _pobCtrl.text     = a.address; // place of birth uses address as fallback
     _addressCtrl.text = a.address;
     _aboutCtrl.text   = a.about;
     _bioCtrl.text     = a.bio;
+  }
+
+  // ── Load cities when state changes ─────────────────────────────────────────
+  Future<void> _loadCities(String stateId) async {
+    setState(() {
+      _citiesLoading = true;
+      _cities        = [];
+      _selectedCity  = null;
+    });
+    try {
+      final res = await ApiService().getCityList(_indiaId, stateId);
+      _cities = res.results;
+    } catch (e) {
+      debugPrint('❌ _loadCities: $e');
+    }
+    if (mounted) setState(() => _citiesLoading = false);
   }
 
   // ── Picker theme ───────────────────────────────────────────────────────────
@@ -128,7 +216,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
           bool    sending  = false;
           String? errorMsg;
 
-          Future<void> _sendOtp() async {
+          Future<void> sendOtp() async {
             final number = phoneCtrl.text.trim();
             if (number.length < 10) {
               setSheet(() => errorMsg = 'Enter a valid 10-digit number');
@@ -196,11 +284,11 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                     if (errorMsg != null) setSheet(() => errorMsg = null);
                   },
                   decoration: InputDecoration(
-                    prefixText   : '+91  ',
-                    hintText     : '10-digit mobile number',
-                    hintStyle    : TextStyle(color: c.subText),
-                    counterText  : '',
-                    errorText    : errorMsg,
+                    prefixText  : '+91  ',
+                    hintText    : '10-digit mobile number',
+                    hintStyle   : TextStyle(color: c.subText),
+                    counterText : '',
+                    errorText   : errorMsg,
                     enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide  : BorderSide(color: c.border)),
@@ -210,8 +298,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                             color: AppTheme.primaryYellow, width: 2)),
                     errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide  : BorderSide(
-                            color: AppTheme.accentRed)),
+                        borderSide  : BorderSide(color: AppTheme.accentRed)),
                     contentPadding: EdgeInsets.symmetric(
                         horizontal: FigmaSize.w(12),
                         vertical  : FigmaSize.h(14)),
@@ -222,7 +309,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                   width : double.infinity,
                   height: FigmaSize.h(50),
                   child : ElevatedButton(
-                    onPressed: sending ? null : _sendOtp,
+                    onPressed: sending ? null : sendOtp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primaryYellow,
                       foregroundColor: Colors.black,
@@ -249,7 +336,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     );
   }
 
-  // ── Step 2: verify OTP ─────────────────────────────────────────────────────
+  // ── Phone OTP — Step 2 ────────────────────────────────────────────────────
   void _showOtpSheet(String number) {
     final otpCtrl = TextEditingController();
     final c       = context.colors;
@@ -265,11 +352,11 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
           bool    verifying = false;
           String? errorMsg;
 
-          Future<void> _verifyOtp() async {
+          Future<void> verifyOtp() async {
             final otp = otpCtrl.text.trim();
             if (otp.length < 4) {
-              setSheet(() => errorMsg =
-                  'Enter the OTP sent to +91 $number');
+              setSheet(() =>
+                  errorMsg = 'Enter the OTP sent to +91 $number');
               return;
             }
             setSheet(() { verifying = true; errorMsg = null; });
@@ -286,7 +373,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                     (ok ? 'Number updated successfully' : 'Verification failed'),
                 success: ok,
               );
-              if (ok) _fetchAndPrefill();
+              if (ok) _init();
             } catch (e) {
               setSheet(() {
                 verifying = false;
@@ -382,7 +469,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                   width : double.infinity,
                   height: FigmaSize.h(50),
                   child : ElevatedButton(
-                    onPressed: verifying ? null : _verifyOtp,
+                    onPressed: verifying ? null : verifyOtp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primaryYellow,
                       foregroundColor: Colors.black,
@@ -412,20 +499,32 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   // ── Submit ─────────────────────────────────────────────────────────────────
   Future<void> _submit() async {
     final body = <String, dynamic>{};
-    void add(String key, TextEditingController c) {
-      final v = c.text.trim();
+
+    void add(String key, TextEditingController ctrl) {
+      final v = ctrl.text.trim();
       if (v.isNotEmpty) body[key] = v;
     }
+
     add('about',   _aboutCtrl);
     add('bio',     _bioCtrl);
     add('dob',     _dobCtrl);
     add('tob',     _tobCtrl);
     add('pob',     _pobCtrl);
     add('address', _addressCtrl);
-    add('city',    _cityCtrl);
     add('faith',   _faithCtrl);
 
+    // State & city IDs + plain names
+    if (_selectedState != null) {
+      body['state_id'] = _selectedState!.id;
+      body['state']    = _selectedState!.name;
+    }
+    if (_selectedCity != null) {
+      body['city_id'] = _selectedCity!.id;
+      body['city']    = _selectedCity!.name;
+    }
+
     if (body.isEmpty) { _showSnack('Nothing to update'); return; }
+
     setState(() => _isSubmitting = true);
     try {
       final res  = await ApiClient().post(
@@ -479,7 +578,6 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         Scaffold(
           backgroundColor: c.bg,
           appBar: AppBar(
-            // Colors inherited from AppTheme automatically
             title    : const Text('Complete your Profile'),
             elevation: 0,
           ),
@@ -492,7 +590,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
 
-                // ── Profile card ─────────────────────────────────────────
+                // ── Profile card (same as original) ──────────────────────
                 Container(
                   padding   : EdgeInsets.all(FigmaSize.w(12)),
                   decoration: BoxDecoration(
@@ -503,13 +601,14 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Avatar
                       Container(
                         height    : FigmaSize.h(72),
                         width     : FigmaSize.w(72),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
-                          color       : isDark ? c.toggleBg : Colors.grey.shade100,
+                          color       : isDark
+                              ? c.toggleBg
+                              : Colors.grey.shade100,
                           image       : d.profileImg.isNotEmpty
                               ? DecorationImage(
                                   image: NetworkImage(d.profileImg),
@@ -522,12 +621,11 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                             : null,
                       ),
                       SizedBox(width: FigmaSize.w(12)),
-                      // Details
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _richLine('Real Name : ',    d.displayname,
+                            _richLine('Real Name : ', d.displayname,
                                 bold: true, c: c),
                             SizedBox(height: FigmaSize.h(4)),
                             _richLine('Display Name : ', d.displayname, c: c),
@@ -540,8 +638,8 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                             SizedBox(height: FigmaSize.h(4)),
                             _iconLine(
                               'Registered No. : +91 ${d.number}',
-                              c      : c,
-                              onEdit : _editPhoneNumber,
+                              c     : c,
+                              onEdit: _editPhoneNumber,
                             ),
                             SizedBox(height: FigmaSize.h(4)),
                             _iconLine(
@@ -558,7 +656,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
                 SizedBox(height: FigmaSize.h(24)),
 
-                // ── Form ─────────────────────────────────────────────────
+                // ── Basic Details ─────────────────────────────────────────
                 Text('Basic Details',
                     style: TextStyle(
                         fontSize  : FigmaSize.w(14),
@@ -567,35 +665,75 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                 SizedBox(height: FigmaSize.h(12)),
 
                 _label('Date of Birth', c),
-                _field(ctrl: _dobCtrl, hint: 'Select date of birth',
+                _field(ctrl: _dobCtrl,
+                    hint  : 'Select date of birth',
                     onTap : _pickDOB,
                     suffix: Icon(Icons.calendar_today,
                         size: 16, color: c.subText),
-                    c    : c),
+                    c     : c),
 
                 SizedBox(height: FigmaSize.h(14)),
                 _label('Time of Birth', c),
-                _field(ctrl: _tobCtrl, hint: 'Select time of birth',
+                _field(ctrl: _tobCtrl,
+                    hint  : 'Select time of birth',
                     onTap : _pickTOB,
                     suffix: Icon(Icons.access_time,
                         size: 16, color: c.subText),
-                    c    : c),
+                    c     : c),
 
                 SizedBox(height: FigmaSize.h(14)),
                 _label('Place of Birth', c),
-                _field(ctrl: _pobCtrl, hint: 'Enter place of birth', c: c),
+                _field(ctrl: _pobCtrl,
+                    hint: 'Enter place of birth', c: c),
 
                 SizedBox(height: FigmaSize.h(14)),
                 _label('Faith', c),
-                _field(ctrl: _faithCtrl, hint: 'Select Faith', c: c),
+                _field(ctrl: _faithCtrl,
+                    hint: 'Select Faith', c: c),
 
                 SizedBox(height: FigmaSize.h(14)),
                 _label('Current Address', c),
-                _field(ctrl: _addressCtrl, hint: 'Enter address', c: c),
+                _field(ctrl: _addressCtrl,
+                    hint: 'Enter address', c: c),
 
+                // ── State dropdown ────────────────────────────────────────
                 SizedBox(height: FigmaSize.h(14)),
-                _label('City', c),
-                _field(ctrl: _cityCtrl, hint: 'Enter Town / City', c: c),
+                _label('State', c),
+                _statesLoading
+                    ? _loadingRow(c)
+                    : _locationDropdown(
+                        hint     : 'Select State',
+                        value    : _selectedState,
+                        items    : _states,
+                        c        : c,
+                        onChanged: (item) {
+                          setState(() {
+                            _selectedState = item;
+                            _selectedCity  = null;
+                            _cities        = [];
+                          });
+                          if (item != null) _loadCities(item.id);
+                        },
+                      ),
+
+                // ── City dropdown ─────────────────────────────────────────
+                SizedBox(height: FigmaSize.h(14)),
+                _label('City / Town', c),
+                _citiesLoading
+                    ? _loadingRow(c)
+                    : _locationDropdown(
+                        hint     : _selectedState == null
+                            ? 'Select State first'
+                            : 'Select City',
+                        value    : _selectedCity,
+                        items    : _cities,
+                        c        : c,
+                        enabled  : _selectedState != null,
+                        onChanged: _selectedState == null
+                            ? null
+                            : (item) =>
+                                setState(() => _selectedCity = item),
+                      ),
 
                 SizedBox(height: FigmaSize.h(14)),
                 _label('About', c),
@@ -605,12 +743,13 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
                 SizedBox(height: FigmaSize.h(14)),
                 _label('Bio', c),
-                _field(ctrl: _bioCtrl, hint: 'Short bio',
+                _field(ctrl: _bioCtrl,
+                    hint    : 'Short bio',
                     maxLines: 2, c: c),
 
                 SizedBox(height: FigmaSize.h(32)),
 
-                // ── Submit button ─────────────────────────────────────────
+                // ── Submit button (same style as original) ────────────────
                 GestureDetector(
                   onTap: _isSubmitting ? null : _submit,
                   child: Container(
@@ -640,7 +779,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
           ),
         ),
 
-        // ── Loading overlay ────────────────────────────────────────────────
+        // ── Loading overlay ───────────────────────────────────────────────
         if (_isSubmitting)
           Container(
             color: Colors.black.withOpacity(0.3),
@@ -651,15 +790,75 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     );
   }
 
-  // ── UI helpers ─────────────────────────────────────────────────────────────
+  // ── UI helpers (same as original + new dropdown + loading row) ─────────────
+
+  Widget _loadingRow(AppColors c) => Padding(
+        padding: EdgeInsets.symmetric(vertical: FigmaSize.h(10)),
+        child: Row(children: [
+          SizedBox(
+            width: 16, height: 16,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppTheme.primaryYellow),
+          ),
+          SizedBox(width: FigmaSize.w(8)),
+          Text('Loading...',
+              style: TextStyle(
+                  fontSize: FigmaSize.w(12), color: c.subText)),
+        ]),
+      );
+
+  Widget _locationDropdown({
+    required String                    hint,
+    required LocationItem?             value,
+    required List<LocationItem>        items,
+    required AppColors                 c,
+    bool                               enabled  = true,
+    ValueChanged<LocationItem?>?       onChanged,
+  }) =>
+      Container(
+        padding   : EdgeInsets.symmetric(horizontal: FigmaSize.w(12)),
+        decoration: BoxDecoration(
+          color       : enabled ? c.surface : c.toggleBg,
+          border      : Border.all(color: c.border),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<LocationItem>(
+            isExpanded   : true,
+            value        : value,
+            dropdownColor: c.surface,
+            hint         : Text(hint,
+                style: TextStyle(
+                    fontSize: FigmaSize.w(12), color: c.subText)),
+            style        : TextStyle(
+                fontSize: FigmaSize.w(12),
+                color   : enabled ? c.text : c.subText),
+            iconEnabledColor : c.subText,
+            iconDisabledColor: c.subText.withOpacity(0.4),
+            onChanged    : enabled ? onChanged : null,
+            items        : items
+                .map((item) => DropdownMenuItem(
+                      value: item,
+                      child: Text(
+                        item.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: FigmaSize.w(12), color: c.text),
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+      );
+
   Widget _label(String text, AppColors c) => Padding(
-    padding: EdgeInsets.only(bottom: FigmaSize.h(6)),
-    child: Text(text,
-        style: TextStyle(
-            fontSize  : FigmaSize.w(12),
-            fontWeight: FontWeight.w600,
-            color     : c.text)),
-  );
+        padding: EdgeInsets.only(bottom: FigmaSize.h(6)),
+        child: Text(text,
+            style: TextStyle(
+                fontSize  : FigmaSize.w(12),
+                fontWeight: FontWeight.w600,
+                color     : c.text)),
+      );
 
   Widget _field({
     required TextEditingController ctrl,
@@ -668,29 +867,33 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     VoidCallback?       onTap,
     Widget?             suffix,
     int                 maxLines = 1,
-  }) => TextFormField(
-    controller: ctrl,
-    readOnly  : onTap != null,
-    onTap     : onTap,
-    maxLines  : maxLines,
-    style     : TextStyle(color: c.text, fontSize: FigmaSize.w(12)),
-    decoration: InputDecoration(
-      hintText      : hint,
-      hintStyle     : TextStyle(fontSize: FigmaSize.w(12), color: c.subText),
-      suffixIcon    : suffix,
-      contentPadding: EdgeInsets.symmetric(
-          horizontal: FigmaSize.w(12), vertical: FigmaSize.h(12)),
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide  : BorderSide(color: c.border)),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide  : BorderSide(color: c.border)),
-      focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide  : BorderSide(color: AppTheme.primaryYellow, width: 2)),
-    ),
-  );
+  }) =>
+      TextFormField(
+        controller: ctrl,
+        readOnly  : onTap != null,
+        onTap     : onTap,
+        maxLines  : maxLines,
+        style     : TextStyle(color: c.text, fontSize: FigmaSize.w(12)),
+        decoration: InputDecoration(
+          hintText      : hint,
+          hintStyle     : TextStyle(
+              fontSize: FigmaSize.w(12), color: c.subText),
+          suffixIcon    : suffix,
+          contentPadding: EdgeInsets.symmetric(
+              horizontal: FigmaSize.w(12),
+              vertical  : FigmaSize.h(12)),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide  : BorderSide(color: c.border)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide  : BorderSide(color: c.border)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide  : BorderSide(
+                  color: AppTheme.primaryYellow, width: 2)),
+        ),
+      );
 
   Widget _richLine(String label, String value,
       {bool bold = false, required AppColors c}) =>

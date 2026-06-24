@@ -37,13 +37,21 @@ class Astrologer {
   final String displayname;
   final String email;
   final String number;
+  final String stateId;   // ← ADD (maps to state_id from backend)
+final String cityId;
   final String bio;
   final String about;
   final int    experience;
   final String address;
+  final String city;       // ← ADD
+  final String pincode;    // ← ADD
+  final String country;    // ← ADD
+  final String panCard;    // ← ADD
+  final String gst;  
   final String dob;
   final String gender;
   final String profileImg;
+  
 
   // ── Service-enabled flags (permanent) ─────────────────────────────────────
   final bool isChatEnabled;
@@ -90,6 +98,13 @@ class Astrologer {
     required this.about,
     required this.experience,
     required this.address,
+    this.city    = '',     // ← ADD
+    this.pincode = '',     // ← ADD
+    this.country = '',     // ← ADD
+    this.panCard = '',     // ← ADD
+    this.gst     = '', 
+    this.stateId = '',
+this.cityId  = '',
     required this.dob,
     required this.gender,
     required this.profileImg,
@@ -126,9 +141,16 @@ class Astrologer {
     about          : json['about']        ?? '',
     experience     : _toInt(json['experience']),
     address        : json['address']      ?? '',
+    city        : json['city']        ?? '',     // ← ADD
+    pincode     : json['pincode']     ?? '',     // ← ADD
+    country     : json['country']     ?? 'India',// ← ADD
+    panCard     : json['pan_card']    ?? '',     // ← ADD
+    gst         : json['gst']         ?? '', 
     dob            : json['dob']          ?? '',
     gender         : json['gender']       ?? '',
     profileImg     : json['profile_img']  ?? '',
+    stateId : json['state_id']?.toString() ?? '',
+cityId  : json['city_id']?.toString()  ?? '',
 
     isChatEnabled      : toBool(json['is_chat']),
     isVoiceCallEnabled : toBool(json['is_voice_call']),

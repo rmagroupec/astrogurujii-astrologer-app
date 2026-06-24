@@ -3,7 +3,7 @@
 // ── Zero functional changes ───────────────────────────────────────────────────
 
 import 'dart:io';
-
+import 'package:astrologer_app/MainNavScreen.dart';
 import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/features/service/provider/ChatProvider.dart';
 import 'package:flutter/material.dart';
@@ -213,8 +213,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _minimize() {
     if (_endFlowShown) return;
-    context.read<ChatProvider>().minimize();
-    Navigator.of(context).pop();
+      
+        Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (_) =>  MainNavScreen()));
   }
 
   Future<void> _triggerEndFlow({
@@ -247,7 +249,10 @@ class _ChatScreenState extends State<ChatScreen> {
         channelId  : widget.channelId,
         onDone     : () {
           Navigator.pop(context);
-          Navigator.pop(context);
+            
+        Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (_) =>  MainNavScreen()));
         },
       ),
     );
@@ -465,7 +470,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return WillPopScope(
       onWillPop: () async {
-        if (!_endFlowShown) { _minimize(); return false; }
+        if (!_endFlowShown) {  Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (_) =>  MainNavScreen())); return false; }
         return true;
       },
       child: Scaffold(
@@ -496,6 +503,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   PreferredSizeWidget _buildAppBar(AppColors c) {
     final duration = context.watch<ChatProvider>().sessionDuration;
+   
+  final isReady  = context.watch<ChatProvider>().isTimerReady;  
     return AppBar(
       // Colors inherited from AppTheme automatically
       leading: IconButton(
@@ -526,9 +535,11 @@ class _ChatScreenState extends State<ChatScreen> {
               Row(children: [
                 const Icon(Icons.timer_outlined, size: 12),
                 const SizedBox(width: 3),
-                Text(duration,
-                    style: const TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.w600)),
+               isReady
+                  ? Text(duration,
+                      style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.w600))
+                  : _TimerSyncingWidget(),
                 const SizedBox(width: 8),
                 Container(width: 7, height: 7,
                     decoration: const BoxDecoration(
@@ -1450,4 +1461,53 @@ class _BouncingDotsState extends State<_BouncingDots>
       )),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMER SYNCING INDICATOR
+// ─────────────────────────────────────────────────────────────────────────────
+class _TimerSyncingWidget extends StatefulWidget {
+  const _TimerSyncingWidget();
+  @override State<_TimerSyncingWidget> createState() => _TimerSyncingWidgetState();
+}
+
+class _TimerSyncingWidgetState extends State<_TimerSyncingWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double>   _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync   : this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+    _fade = Tween<double>(begin: 0.3, end: 1.0).animate(_ctrl);
+  }
+
+  @override void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _fade,
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(
+        width : 10, height: 10,
+        child : CircularProgressIndicator(
+          strokeWidth: 1.5,
+          color      : Colors.white.withOpacity(0.8),
+        ),
+      ),
+      const SizedBox(width: 5),
+      Text(
+        'Syncing…',
+        style: TextStyle(
+          fontSize  : 10,
+          color     : Colors.white.withOpacity(0.8),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    ]),
+  );
 }

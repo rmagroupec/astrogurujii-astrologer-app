@@ -1,3 +1,5 @@
+// lib/model/AstrologerWalletModel.dart
+
 class AstrologerWalletResponse {
   final bool result;
   final String message;
@@ -18,7 +20,6 @@ class AstrologerWalletResponse {
       result:      json['result']  ?? false,
       message:     json['message'] ?? '',
       notifyCount: json['notify_count']?.toString() ?? '',
-      // ✅ parse flat fields directly from root — backend sends no nested "data"
       data: WalletData.fromJson(json),
       onlineStatus: OnlineStatus(
         isCallOnline:  json['is_call_online']  ?? 'off',
@@ -30,12 +31,10 @@ class AstrologerWalletResponse {
 }
 
 class WalletData {
-  final String myWallet;        // raw wallet balance
-  final String percentage;      // TDS percentage e.g. "10"
-  final String tds;             // TDS amount
-  final String payableAmount;   // wallet - TDS
-
-  // These are kept for future use / other screens
+  final String myWallet;
+  final String percentage;
+  final String tds;
+  final String payableAmount;
   final String lifetimeEarning;
   final String pendingEarning;
   final String weeklyEarning;
@@ -62,23 +61,21 @@ class WalletData {
     required this.note,
   });
 
-  // ✅ reads from root-level JSON (flat structure from backend)
   factory WalletData.fromJson(Map<String, dynamic> json) {
     return WalletData(
-      myWallet:        json['my_wallet']?.toString()       ?? '0',
-      percentage:      json['percentage']?.toString()      ?? '0',
-      tds:             json['tds']?.toString()             ?? '0',
-      payableAmount:   json['payable_amount']?.toString()  ?? '0',
-      // optional extras (may not be present in this endpoint)
-      lifetimeEarning:                json['lifetime_earning']                     ?? '0',
-      pendingEarning:                 json['pending_earning']                      ?? '0',
-      weeklyEarning:                  json['weekly_earning']                       ?? '0',
-      rank:                           json['rank']                                 ?? '0',
-      todayAvailableBalance:          json['today_available_balance']              ?? '0',
-      todayPayableAmount:             json['today_payable_amount']                 ?? '0',
-      todayAstromallAvailableBalance: json['today_astromall_available_balance']    ?? '0',
-      todayAstromallPayableAmount:    json['today_astromall_payable_amount']       ?? '0',
-      note:                           json['note']                                 ?? '',
+      myWallet:                       json['my_wallet']?.toString()                    ?? '0',
+      percentage:                     json['percentage']?.toString()                   ?? '0',
+      tds:                            json['tds']?.toString()                          ?? '0',
+      payableAmount:                  json['payable_amount']?.toString()               ?? '0',
+      lifetimeEarning:                json['lifetime_earning']?.toString()             ?? '0',
+      pendingEarning:                 json['pending_earning']?.toString()              ?? '0',
+      weeklyEarning:                  json['weekly_earning']?.toString()               ?? '0',
+      rank:                           json['rank']?.toString()                         ?? '0',
+      todayAvailableBalance:          json['today_available_balance']?.toString()      ?? '0',
+      todayPayableAmount:             json['today_payable_amount']?.toString()         ?? '0',
+      todayAstromallAvailableBalance: json['today_astromall_available_balance']?.toString() ?? '0',
+      todayAstromallPayableAmount:    json['today_astromall_payable_amount']?.toString()    ?? '0',
+      note:                           json['note']?.toString()                         ?? '',
     );
   }
 }
@@ -101,4 +98,78 @@ class OnlineStatus {
       isVideoOnline: json['is_video_online'] ?? 'off',
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// WALLET TRANSACTION  (used by WalletScreen recent transactions)
+// ─────────────────────────────────────────────────────────────────
+class TransactionListResponse1 {
+  final bool                    status;
+  final String                  message;
+  final List<WalletTransaction> results;
+
+  TransactionListResponse1({
+    required this.status,
+    required this.message,
+    required this.results,
+  });
+
+  factory TransactionListResponse1.fromJson(Map<String, dynamic> json) {
+     print('TX JSON: $json');
+  return TransactionListResponse1(
+    status : json['status']  ?? json['result'] ?? false,
+    message: json['message'] ?? '',
+    results: (json['results'] as List<dynamic>? ?? [])  // ✅ was 'transaction_list'
+        .map((e) => WalletTransaction.fromJson(e))
+        .toList(),
+  );
+}
+}
+
+class WalletTransaction {
+  final String id;
+  final String amount;
+  final String type;
+  final String description;
+  final String createdDate;
+  final String note;
+  final String userName;
+  final int    callDuration;
+  final String payFor;
+  final String channelId;   // ✅ new
+  final String userId;      // ✅ new
+
+  WalletTransaction({
+    required this.id,
+    required this.amount,
+    required this.type,
+    required this.description,
+    required this.createdDate,
+    required this.note,
+    required this.userName,
+    required this.callDuration,
+    required this.payFor,
+    required this.channelId,  // ✅ new
+    required this.userId,     // ✅ new
+  });
+
+  factory WalletTransaction.fromJson(Map<String, dynamic> json) {
+  return WalletTransaction(
+    id          : json['_id']?.toString()          ?? '',
+    amount      : json['amount']?.toString()        ?? '0',
+    type        : json['amount_type']?.toString()   ?? '',
+    description : json['note']?.toString()          ?? '',
+    createdDate : json['Created_date']?.toString()  ?? '',
+    note        : json['note']?.toString()          ?? '',
+    userName    : json['user_name']?.toString()     ?? '',  // ✅ "Chat with Name"
+  callDuration: int.tryParse(
+  json['call_duracation']?.toString() ??   // ✅ API field name (with typo)
+  json['call_duration']?.toString()  ??   // fallback
+  '0'
+) ?? 0,
+    payFor      : json['pay_for']?.toString()       ?? '',
+    channelId   : json['channel_id']?.toString()   ?? '',  // ✅ new
+    userId      : json['user_id']?.toString()       ?? '',  // ✅ new
+  );
+}
 }

@@ -114,6 +114,7 @@ class _ActiveCallFloatingCardState extends State<ActiveCallFloatingCard>
 
   switch (d?.callType?.toString().toLowerCase()) {
     case 'audio':
+    
       NavigationManager().openAudioCallScreen(
         channelId : d?.channelId?.toString()  ?? '',
         token     : '',

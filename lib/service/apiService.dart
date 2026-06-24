@@ -7,6 +7,8 @@ import 'package:astrologer_app/model/AstrologerGalleryModel.dart';
 import 'package:astrologer_app/model/AstrologerLiveEventsListModel.dart';
 import 'package:astrologer_app/model/AstrologerWalletModel.dart';
 import 'package:astrologer_app/model/BankAccountRequestModel.dart';
+import 'package:astrologer_app/features/account/WalletScreen.dart';
+import 'package:astrologer_app/model/AstrologerWalletModel.dart'  as model;
 import 'package:astrologer_app/model/PriceIncreaseRequestModel.dart';
 import 'package:astrologer_app/model/VideoCallHistoryModel.dart';
 import 'package:astrologer_app/model/WaitingListResponseModel.dart';
@@ -18,6 +20,7 @@ import 'package:http/http.dart' as http;
 import 'package:astrologer_app/service/apiClient.dart';
 import 'package:flutter/foundation.dart';
 import 'package:astrologer_app/model/last_call_list_model.dart';
+import 'package:astrologer_app/model/LocationModel.dart';
 
 class ApiService {
   final ApiClient _client = ApiClient();
@@ -83,6 +86,36 @@ class ApiService {
     print(response.body);
     return NotificationResponse.fromJson(jsonDecode(response.body));
   }
+  // Fetch states (countries_id = "1" for India, states_id = "0" means top level)
+// Countries list (countries_id=0, states_id=0)
+Future<LocationResponse> getCountryList() async {
+  final response = await _client.post(
+    'astrologer_api/location_list',
+    {'countries_id': '0', 'states_id': '0'},
+    isAuthRequired: false,
+  );
+  return LocationResponse.fromJson(jsonDecode(response.body));
+}
+
+// States of a country (states_id=0)
+Future<LocationResponse> getStateList(String countriesId) async {
+  final response = await _client.post(
+    'astrologer_api/location_list',
+    {'countries_id': countriesId, 'states_id': '0'},
+    isAuthRequired: false,
+  );
+  return LocationResponse.fromJson(jsonDecode(response.body));
+}
+
+// Cities of a state
+Future<LocationResponse> getCityList(String countriesId, String statesId) async {
+  final response = await _client.post(
+    'astrologer_api/location_list',
+    {'countries_id': countriesId, 'states_id': statesId},
+    isAuthRequired: false,
+  );
+  return LocationResponse.fromJson(jsonDecode(response.body));
+}
 
   Future<AstrologerProfileResponse> get_astrologer_profile() async {
     final response = await _client.post(
@@ -150,17 +183,27 @@ class ApiService {
     return TransactionListResponse.fromJson(jsonDecode(response.body));
   }
 
-  Future<RatingListResponse> getReviewList() async {
+ // lib/service/apiService.dart
+
+/// ── Fetch Reviews with Optional Filtering ──────────────────────────────
+Future<RatingListResponse> getReviewList({String filter = 'all'}) async {
+  try {
+    // Passing the map directly as the second argument block
     final response = await _client.post(
       "astrologer_api/review_list",
-      {},
-
+      {
+        "filter": filter,
+      },
       isAuthRequired: true,
     );
-    print(response.body);
-    return RatingListResponse.fromJson(jsonDecode(response.body));
-  }
 
+    debugPrint("Review List Response: ${response.body}");
+    return RatingListResponse.fromJson(jsonDecode(response.body));
+  } catch (e) {
+    debugPrint("Get review list network exception: $e");
+    rethrow;
+  }
+}
   Future<ChatCallResponse> PriceIncreaseRequestList() async {
     final response = await _client.post(
       "astrologer_api/chat_call_request_list",
@@ -288,4 +331,62 @@ Future<LastCallListModel?> lastCallList() async {
     return null;
   }
 }
+// Change the return type from List<WalletTransaction> to model.TransactionListResponse1
+Future<model.TransactionListResponse1> GetAstrologerWalletTransaction() async {
+  try {
+    final response = await _client.post(
+      "astrologer_api/astrologer_wallet_transaction",
+      {},
+      isAuthRequired: true,
+    );
+
+    print(response.body);
+
+    return model.TransactionListResponse1.fromJson(jsonDecode(response.body));
+  } catch (e) {
+    debugPrint("Wallet transaction error: $e");
+    rethrow;
+  }
+
+}
+Future<bool> updateReviewAction({
+  required String reviewId,
+  required String action, // Acceptable parameters: 'pin' | 'unpin' | 'flag'
+}) async {
+  try {
+    final response = await _client.post(
+      "astrologer_api/review_action",
+      {
+        "review_id": reviewId,
+        "actionType": action,
+      },
+      isAuthRequired: true,
+    );
+
+    debugPrint("Review Action Response: ${response.body}");
+    
+    final Map<String, dynamic> responseData = jsonDecode(response.body);
+    return responseData['status'] ?? false;
+  } catch (e) {
+    debugPrint("Review interaction exception: $e");
+    return false;
+  }
+}
+
+ Future<bool?> toggle(String userId) async {
+    try {
+   
+      final resp = await _client.post(
+      'astrologer_api/community_toggle_favourite',
+       {'user_id': userId}
+      );
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (data['result'] == true) {
+        return data['is_favourite'] as bool?;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
 }

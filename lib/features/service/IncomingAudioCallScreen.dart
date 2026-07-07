@@ -45,6 +45,7 @@ class _IncomingAudioCallScreenState extends State<IncomingAudioCallScreen>
       duration: const Duration(seconds: 2),
     )..repeat();
     LocalNotificationService.playRingtone();
+    LocalNotificationService.startVibration();
   }
 
   @override

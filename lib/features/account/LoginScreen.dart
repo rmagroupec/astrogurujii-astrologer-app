@@ -35,52 +35,70 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   bool isObscure = true;
-  Future<void> _handleLogin() async {
-    // Dismiss keyboard
-    FocusScope.of(context).unfocus();
+ Future<void> _handleLogin() async {
+  FocusScope.of(context).unfocus();
+  if (!_formKey.currentState!.validate()) return;
 
-    if (!_formKey.currentState!.validate()) return;
+  setState(() => _isLoading = true);
 
-    setState(() => _isLoading = true);
+  // ✅ Save context-dependent refs BEFORE any async gap
+  final navigator = Navigator.of(context);
+  final messenger = ScaffoldMessenger.of(context);
 
-    try {
-      final response = await ApiService().login(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
+  try {
+    final response = await ApiService().login(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
 
-      if (!mounted) return;
+    if (!mounted) return;  // ✅ check mounted after every await
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
 
-        if (data['status'] == true) {
-          await LocalStorageService().saveLoginData(data);
+      if (data['status'] == true) {
+        await LocalStorageService().saveLoginData(data);
 
-          if (!mounted) return;
+        if (!mounted) return;
 
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const MainNavScreen()),
-            (route) => false,
-          );
-        } else {
-          // ✅ Show server-side error message if available
-          final message = data['message'] ?? 'Invalid credentials. Please try again.';
-          _showError(message);
-        }
-      } else if (response.statusCode == 401) {
-        _showError('Invalid email or password.');
+        // ✅ Use saved navigator — widget may be deactivated by now
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const MainNavScreen()),
+          (route) => false,
+        );
       } else {
-        _showError('Something went wrong (${response.statusCode}). Please try again.');
+        final message = data['message'] ?? 'Invalid credentials. Please try again.';
+        // ✅ Use saved messenger — widget may be deactivated
+        messenger.showSnackBar(SnackBar(
+          content        : Text(message),
+          backgroundColor: Colors.red,
+          behavior       : SnackBarBehavior.floating,
+        ));
       }
-    } catch (e) {
-      if (!mounted) return;
-      _showError('Network error. Please check your connection.');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    } else if (response.statusCode == 401) {
+      messenger.showSnackBar(const SnackBar(
+        content        : Text('Invalid email or password.'),
+        backgroundColor: Colors.red,
+        behavior       : SnackBarBehavior.floating,
+      ));
+    } else {
+      messenger.showSnackBar(SnackBar(
+        content        : Text('Something went wrong (${response.statusCode}). Please try again.'),
+        backgroundColor: Colors.red,
+        behavior       : SnackBarBehavior.floating,
+      ));
     }
+  } catch (e) {
+    if (!mounted) return;
+    messenger.showSnackBar(const SnackBar(
+      content        : Text('Network error. Please check your connection.'),
+      backgroundColor: Colors.red,
+      behavior       : SnackBarBehavior.floating,
+    ));
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(

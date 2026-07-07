@@ -39,6 +39,7 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen>
       duration: const Duration(seconds: 2),
     )..repeat();
     LocalNotificationService.playRingtone();
+    LocalNotificationService.startVibration();
   }
 
   @override

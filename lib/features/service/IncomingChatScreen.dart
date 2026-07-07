@@ -42,6 +42,8 @@ class _IncomingChatRequestScreenState
         CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
 
     LocalNotificationService.playRingtone();
+    LocalNotificationService.startVibration();   // ✅ continuous vibration
+
   }
 
   @override

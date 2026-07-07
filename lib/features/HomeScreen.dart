@@ -5,6 +5,8 @@
 // ── All other code unchanged ──────────────────────────────────────────────────
 
 import 'dart:convert';
+import 'package:astrologer_app/features/Settings/AboutBoostScreen.dart';
+import 'package:astrologer_app/features/Settings/BoostHistoryScreen.dart';
 import 'package:astrologer_app/features/account/WalletScreen.dart';
 import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/core/utils/size_config.dart';
@@ -144,18 +146,63 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── API: set chat/voice/video online status ────────────────────────────────
   // Uses profile_status_update with is_chat_online / is_voice_online / is_video_online
+ 
   Future<bool> _setOnline(String type, bool on) async {
-    final field = type == 'chat'  ? 'is_chat_online'
-                : type == 'voice' ? 'is_voice_online'
-                :                   'is_video_online';
+    final Map<String, String> body = {};
+ 
+    if (on) {
+      // ✅ Turning ON — only this service
+      final field = type == 'chat'  ? 'is_chat_online'
+                  : type == 'voice' ? 'is_voice_online'
+                  :                   'is_video_online';
+      body[field] = 'on';
+    } else {
+      // ✅ Turning OFF — check if all were ON together
+      // If chat+voice+video were ALL on and we're turning one off,
+      // turn ALL off together
+      final allOn = _chatOn && _voiceOn && _videoOn;
+ 
+      if (allOn) {
+        // All were on — turn all off
+        body['is_chat_online']  = 'off';
+        body['is_voice_online'] = 'off';
+        body['is_video_online'] = 'off';
+      } else {
+        // Only this service was on — turn just this one off
+        final field = type == 'chat'  ? 'is_chat_online'
+                    : type == 'voice' ? 'is_voice_online'
+                    :                   'is_video_online';
+        body[field] = 'off';
+      }
+    }
+ 
     try {
       final res = await ApiClient().post(
         'astrologer_api/profile_status_update',
-        {field: on ? 'on' : 'off'},
+        body,
         isAuthRequired: true,
       );
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      return body['status'] == true;
+      final resBody = jsonDecode(res.body) as Map<String, dynamic>;
+      final ok      = resBody['status'] == true;
+ 
+      // ✅ Update local state to match what we sent
+      if (ok && !on) {
+        final allOn = _chatOn && _voiceOn && _videoOn;
+        if (allOn) {
+          // All turned off
+          setState(() {
+            _chatOn  = false;
+            _voiceOn = false;
+            _videoOn = false;
+            _chatSub  = 'Offline';
+            _voiceSub = 'Offline';
+            _videoSub = 'Offline';
+          });
+          return true; // caller doesn't need to update state again
+        }
+      }
+ 
+      return ok;
     } catch (e) {
       debugPrint('_setOnline error: $e');
       return false;
@@ -946,7 +993,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ]);
 
   // ── Auto Boost card (fully wired to API) ──────────────────────────────────
-  Widget _buildAutoBoostCard(AppColors c) => Container(
+ Widget _buildAutoBoostCard(AppColors c) => Container(
     margin    : EdgeInsets.symmetric(horizontal: FigmaSize.w(10)),
     padding   : EdgeInsets.all(FigmaSize.w(16)),
     decoration: BoxDecoration(
@@ -955,23 +1002,76 @@ class _HomeScreenState extends State<HomeScreen> {
       border      : Border.all(color: c.border),
     ),
     child: Column(children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text('Auto Boost Your Profile',
-            style: TextStyle(
+ 
+      // ── Header row: title + ℹ️ icon + 🕐 history icon ──────────────
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              'Auto Boost Your Profile',
+              style: TextStyle(
                 fontSize  : FigmaSize.w(15),
                 fontWeight: FontWeight.w600,
-                color     : c.text)),
-        Row(children: [
-          Icon(Icons.info_outline, color: c.subText, size: 20),
-        ]),
-      ]),
+                color     : c.text,
+              ),
+            ),
+          ),
+          // History icon
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const BoostHistoryScreen()),
+            ),
+            child: Container(
+              width : FigmaSize.w(32),
+              height: FigmaSize.h(32),
+              decoration: BoxDecoration(
+                color : AppTheme.primaryYellow.withOpacity(0.12),
+                shape : BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.history_rounded,
+                size : FigmaSize.w(17),
+                color: AppTheme.primaryYellow,
+              ),
+            ),
+          ),
+          SizedBox(width: FigmaSize.w(8)),
+          // Info icon
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const AboutBoostScreen()),
+            ),
+            child: Container(
+              width : FigmaSize.w(32),
+              height: FigmaSize.h(32),
+              decoration: BoxDecoration(
+                color : c.toggleBg,
+                shape : BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.info_outline_rounded,
+                size : FigmaSize.w(17),
+                color: c.subText,
+              ),
+            ),
+          ),
+        ],
+      ),
+ 
       SizedBox(height: FigmaSize.h(8)),
+ 
       Text(
         'Auto boost promotes your profile in the listing when you are online.',
         style: TextStyle(fontSize: FigmaSize.w(11), color: c.subText),
       ),
+ 
       SizedBox(height: FigmaSize.h(14)),
-
+ 
       // Chat boost row
       _boostRow(
         c       : c,
@@ -987,15 +1087,17 @@ class _HomeScreenState extends State<HomeScreen> {
             _boostChatSaving = false;
             if (ok) _boostChat = v;
           });
-          _snack(ok
-            ? (v ? 'Chat boost enabled' : 'Chat boost disabled')
-            : 'Failed to update chat boost',
-            error: !ok);
+          _snack(
+            ok
+              ? (v ? 'Chat boost enabled' : 'Chat boost disabled')
+              : 'Failed to update chat boost',
+            error: !ok,
+          );
         },
       ),
-
+ 
       SizedBox(height: FigmaSize.h(12)),
-
+ 
       // Call boost row
       _boostRow(
         c       : c,
@@ -1011,10 +1113,12 @@ class _HomeScreenState extends State<HomeScreen> {
             _boostCallSaving = false;
             if (ok) _boostCall = v;
           });
-          _snack(ok
-            ? (v ? 'Call boost enabled' : 'Call boost disabled')
-            : 'Failed to update call boost',
-            error: !ok);
+          _snack(
+            ok
+              ? (v ? 'Call boost enabled' : 'Call boost disabled')
+              : 'Failed to update call boost',
+            error: !ok,
+          );
         },
       ),
     ]),
@@ -1060,90 +1164,203 @@ class _HomeScreenState extends State<HomeScreen> {
 // =============================================================================
 // WIDGET: Today's Progress
 // =============================================================================
+ 
 class _ProgressCard extends StatelessWidget {
   final PerfData     perf;
   final VoidCallback onCheckTap;
   const _ProgressCard({required this.perf, required this.onCheckTap});
-
+ 
   @override
   Widget build(BuildContext context) {
-    final c   = context.colors;
-    final msg = perf.progress >= 1.0
+    final c    = context.colors;
+    final isDark = context.isDark;
+ 
+    // ── label shown inside donut ──────────────────────────────────────────
+    final String centerLabel;
+    if (perf.progress >= 1.0)            centerLabel = 'Target\nMet! 🎉';
+    else if (perf.progress >= 0.9)       centerLabel = 'Almost\nThere';
+    else if (perf.progress >= 0.7)       centerLabel = 'Keep\nGoing';
+    else if (perf.progress >= 0.5)       centerLabel = 'Need\nImprovement';
+    else                                 centerLabel = 'Get\nStarted';
+ 
+    // ── ring colour ───────────────────────────────────────────────────────
+    final Color ringColor = perf.progress >= 1.0
+        ? Colors.green
+        : AppTheme.primaryColor;                   // yellow/amber from theme
+ 
+    // ── description text — bold the time part like screenshot ────────────
+    final String remaining = perf.remainingStr;
+    final String fullMsg   = perf.progress >= 1.0
         ? 'Target Completed! 🎉'
-        : 'Only ${perf.remainingStr} left to complete your 14 hours online target.';
-
+        : 'left to complete your 14 hours online target.';
+ 
     return Container(
       margin    : EdgeInsets.symmetric(horizontal: FigmaSize.w(10)),
-      padding   : EdgeInsets.all(FigmaSize.w(16)),
       decoration: BoxDecoration(
         color       : c.surface,
-        borderRadius: BorderRadius.circular(FigmaSize.w(10)),
+        borderRadius: BorderRadius.circular(FigmaSize.w(12)),
         border      : Border.all(color: c.border),
+        boxShadow   : isDark ? [] : [
+          BoxShadow(color: Colors.black.withOpacity(0.04),
+              blurRadius: 8, offset: const Offset(0, 2)),
+        ],
       ),
-      child: Row(children: [
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Today's Progress",
-                style: TextStyle(
-                    fontSize  : FigmaSize.w(15),
-                    fontWeight: FontWeight.w600,
-                    color     : const Color(0xFFD41000))),
-            SizedBox(height: FigmaSize.h(6)),
-            Text(msg,
-                style: TextStyle(
-                    fontSize: FigmaSize.w(12), color: c.subText)),
-            SizedBox(height: FigmaSize.h(12)),
-            GestureDetector(
-              onTap: onCheckTap,
-              child: Container(
-                padding: EdgeInsets.symmetric(
-                    horizontal: FigmaSize.w(14),
-                    vertical  : FigmaSize.h(8)),
-                decoration: BoxDecoration(
-                  color       : AppTheme.primaryColor,
-                  borderRadius: BorderRadius.circular(6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+ 
+          // ── Main row: text left, donut right ─────────────────────────
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                FigmaSize.w(16), FigmaSize.h(16),
+                FigmaSize.w(16), FigmaSize.h(12)),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+ 
+                // LEFT — title + description + button
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+ 
+                      Text("Today's Progress",
+                          style: TextStyle(
+                              fontSize  : FigmaSize.w(16),
+                              fontWeight: FontWeight.w700,
+                              color     : const Color(0xFFD41000))),
+ 
+                      SizedBox(height: FigmaSize.h(8)),
+ 
+                      // ✅ "Only 7 hours 2 mins left to complete..."
+                      // Bold the time part like in the screenshot
+                      if (perf.progress < 1.0)
+                        RichText(
+                          text: TextSpan(
+                            style: TextStyle(
+                                fontSize: FigmaSize.w(12), color: c.subText),
+                            children: [
+                              const TextSpan(text: 'Only '),
+                              TextSpan(
+                                text: remaining,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color     : c.text),
+                              ),
+                              const TextSpan(
+                                  text: ' left to complete\nyour 14 hours online target.'),
+                            ],
+                          ),
+                        )
+                      else
+                        Text('Target Completed! 🎉',
+                            style: TextStyle(
+                                fontSize  : FigmaSize.w(12),
+                                fontWeight: FontWeight.w600,
+                                color     : Colors.green)),
+ 
+                      SizedBox(height: FigmaSize.h(14)),
+ 
+                      // Check Performance button
+                      GestureDetector(
+                        onTap: onCheckTap,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: FigmaSize.w(16),
+                              vertical  : FigmaSize.h(10)),
+                          decoration: BoxDecoration(
+                            color       : AppTheme.primaryColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text('Check Performance',
+                              style: TextStyle(
+                                  fontSize  : FigmaSize.w(13),
+                                  fontWeight: FontWeight.w600,
+                                  color     : Colors.black)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                child: Text('Check Performance',
+ 
+                SizedBox(width: FigmaSize.w(12)),
+ 
+                // RIGHT — donut ring
+                SizedBox(
+                  width : FigmaSize.w(110),
+                  height: FigmaSize.h(110),
+                  child : Stack(alignment: Alignment.center, children: [
+                    SizedBox(
+                      width : FigmaSize.w(110),
+                      height: FigmaSize.h(110),
+                      child : CircularProgressIndicator(
+                        value          : perf.progress,
+                        strokeWidth    : 9,
+                        backgroundColor: c.border,
+                        valueColor     : AlwaysStoppedAnimation<Color>(ringColor),
+                      ),
+                    ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          perf.onlineTimeStr,
+                          style: TextStyle(
+                              fontSize  : FigmaSize.w(16),
+                              fontWeight: FontWeight.w700,
+                              color     : ringColor),
+                        ),
+                        SizedBox(height: FigmaSize.h(2)),
+                        Text(
+                          centerLabel,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: FigmaSize.w(10),
+                              color   : c.subText),
+                        ),
+                      ],
+                    ),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+ 
+          // ── Bottom note with clock icon ───────────────────────────────
+          Container(
+            width     : double.infinity,
+            padding   : EdgeInsets.symmetric(
+                horizontal: FigmaSize.w(16), vertical: FigmaSize.h(10)),
+            decoration: BoxDecoration(
+              color       : isDark
+                  ? Colors.white.withOpacity(0.04)
+                  : Colors.grey.shade50,
+              borderRadius: BorderRadius.only(
+                bottomLeft : Radius.circular(FigmaSize.w(12)),
+                bottomRight: Radius.circular(FigmaSize.w(12)),
+              ),
+              border: Border(
+                top: BorderSide(color: c.border),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.access_time_rounded,
+                    size: FigmaSize.w(16), color: c.subText),
+                SizedBox(width: FigmaSize.w(8)),
+                Expanded(
+                  child: Text(
+                    'Availability target based on your past 30 days average availability hours.',
                     style: TextStyle(
-                        fontSize  : FigmaSize.w(13),
-                        fontWeight: FontWeight.w600,
-                        color     : Colors.black)),
-              ),
+                        fontSize: FigmaSize.w(11), color: c.subText),
+                  ),
+                ),
+              ],
             ),
-          ],
-        )),
-        SizedBox(width: FigmaSize.w(14)),
-        SizedBox(
-          width : FigmaSize.w(90),
-          height: FigmaSize.h(90),
-          child : Stack(alignment: Alignment.center, children: [
-            SizedBox(
-              width : FigmaSize.w(90), height: FigmaSize.h(90),
-              child : CircularProgressIndicator(
-                value          : perf.progress,
-                strokeWidth    : 7,
-                backgroundColor: c.border,
-                valueColor     : AlwaysStoppedAnimation<Color>(
-                    perf.progress >= 1.0
-                        ? Colors.green
-                        : AppTheme.primaryColor),
-              ),
-            ),
-            Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(perf.onlineTimeStr,
-                  style: TextStyle(
-                      fontSize  : FigmaSize.w(13),
-                      fontWeight: FontWeight.bold,
-                      color     : c.text)),
-              Text(perf.centerLabel,
-                  style: TextStyle(
-                      fontSize: FigmaSize.w(9), color: c.subText),
-                  textAlign: TextAlign.center),
-            ]),
-          ]),
-        ),
-      ]),
+          ),
+        ],
+      ),
     );
   }
 }

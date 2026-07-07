@@ -147,7 +147,7 @@ class NotificationService {
   Future<void> deleteToken() async {
     await _fcm.deleteToken();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('fcm_token');
+    // await prefs.remove('fcm_token');
     await prefs.remove('fcm_token_timestamp');
     _fcmToken = null;
   }

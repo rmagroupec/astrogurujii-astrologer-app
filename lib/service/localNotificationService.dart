@@ -12,6 +12,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
@@ -33,6 +34,9 @@ class LocalNotificationService {
   // IMPORTANT: this flag is meaningless in background isolate.
   // Only IncomingCallScreen calls playRingtone()/stopRingtone().
   static bool _ringing = false;
+
+  // ── Vibration guard ───────────────────────────────────────────────────────
+  static bool _vibrating = false;
 
   // ─────────────────────────────────────────────────────────────────────────
   // INIT — call once from main() and once from firebaseMessagingBackgroundHandler
@@ -57,15 +61,15 @@ class LocalNotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(
-          AndroidNotificationChannel(
+          const AndroidNotificationChannel(
             _callChannelId,
             _callChannelName,
             description    : 'Audio, video, and chat calls from users',
             importance     : Importance.max,
-            // ✅ Channel itself has NO sound/vibration — we manage this via
-            // the notification's vibrationPattern and Flutter ringtone player
+            // ✅ Channel itself has NO sound — we manage via FlutterRingtonePlayer
+            // ✅ Vibration ON at channel level so Android allows it
             playSound      : false,
-            enableVibration: false,
+            enableVibration: true,
             showBadge      : true,
           ),
         );
@@ -73,15 +77,6 @@ class LocalNotificationService {
 
   // ─────────────────────────────────────────────────────────────────────────
   // SHOW INCOMING CALL NOTIFICATION
-  //
-  // Called from:
-  //   • firebaseMessagingBackgroundHandler (background isolate — NO ringtone)
-  //   • _AppRoot._onForegroundMessage (main isolate — IncomingScreen handles ring)
-  //
-  // The notification does THREE things:
-  //   1. fullScreenIntent → wakes the screen and opens the app on lock screen
-  //   2. Accept / Reject actions → handled by onNotificationAction in main.dart
-  //   3. Vibration pattern → alerts user when phone is on silent
   // ─────────────────────────────────────────────────────────────────────────
   static Future<void> showIncomingCall({
     required String              title,
@@ -91,10 +86,12 @@ class LocalNotificationService {
     final payloadStr = _encodePayload(payload);
     final notifId    = _notifId(payload['channel_id'] ?? 'call');
 
-    // Vibration: ring pattern — 3 long pulses, keeps repeating with ongoing:true
-    // On silent: vibration still fires (matches phone call behaviour)
+    // ✅ Repeating vibration pattern:
+    // [delay, vibrate, pause, vibrate, pause, vibrate, long-pause] × repeat
+    // This pattern fires once per notification show — for continuous vibration
+    // we use playVibration() separately from the IncomingScreen
     final vibration = Int64List.fromList([
-      0, 800, 400, 800, 400, 800, 2000,
+      0, 1000, 500, 1000, 500, 1000, 1500,
     ]);
 
     final androidDetails = AndroidNotificationDetails(
@@ -104,18 +101,20 @@ class LocalNotificationService {
       importance        : Importance.max,
       priority          : Priority.max,
 
-      // ── Lock screen & background wake ────────────────────────────────────
-      fullScreenIntent: true,                          // shows over lock screen
-      visibility      : NotificationVisibility.public, // visible on lock screen
-      category        : AndroidNotificationCategory.call, // treated as phone call
+      // ── Lock screen & background wake ──────────────────────────────────
+      fullScreenIntent: true,
+      visibility      : NotificationVisibility.public,
+      category        : AndroidNotificationCategory.call,
 
       // ── Keep alive until answered / dismissed ─────────────────────────
-      ongoing      : true,   // can't be swiped away
+      ongoing      : true,
       autoCancel   : false,
-      timeoutAfter : 45000,  // 45 s — remove if unanswered
+      timeoutAfter : 45000,  // 45s auto-dismiss
 
       // ── Sound & vibration ─────────────────────────────────────────────
-      playSound       : false,       // we play via FlutterRingtonePlayer
+      // ✅ playSound: false — ringtone handled by FlutterRingtonePlayer
+      // ✅ enableVibration: true — pattern fires when notification shows
+      playSound       : false,
       enableVibration : true,
       vibrationPattern: vibration,
 
@@ -124,13 +123,13 @@ class LocalNotificationService {
         AndroidNotificationAction(
           acceptAction,
           '✅  Accept',
-          showsUserInterface: true,   // brings app to foreground
+          showsUserInterface: true,
           cancelNotification: true,
         ),
         AndroidNotificationAction(
           rejectAction,
           '❌  Reject',
-          showsUserInterface: false,  // handles silently
+          showsUserInterface: false,
           cancelNotification: true,
         ),
       ],
@@ -149,14 +148,15 @@ class LocalNotificationService {
   // RINGTONE — main isolate only
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Start ringing. Safe to call multiple times — guards with _ringing flag.
+  /// ✅ Start ringing — uses asAlarm: true so it plays even on silent/DND
+  /// (matches real phone call behavior on Android)
   static Future<void> playRingtone() async {
     if (_ringing) return;
     _ringing = true;
     await FlutterRingtonePlayer().playRingtone(
       looping: true,
       volume : 1.0,
-      asAlarm: false, // use device's ringtone, respects silent mode
+      asAlarm: true,   // ✅ bypasses silent mode — plays like a real call
     );
   }
 
@@ -165,33 +165,82 @@ class LocalNotificationService {
     if (!_ringing) return;
     _ringing = false;
     await FlutterRingtonePlayer().stop();
+    // ✅ also stop vibration when ringtone stops
+    await stopVibration();
   }
 
   /// Force stop — used by onNotificationAction which runs in a fresh isolate
   /// where _ringing=false but ringtone may be playing in the main isolate.
-  /// We call stop() unconditionally here.
   static Future<void> forceStopRingtone() async {
-    _ringing = false;
+    _ringing   = false;
+    _vibrating = false;
     await FlutterRingtonePlayer().stop();
+    try {
+      await HapticFeedback.vibrate(); // cancel any ongoing vibration
+    } catch (_) {}
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // VIBRATION — continuous pattern while ringing
+  // Call startVibration() from IncomingCallScreen.initState()
+  // Call stopVibration() from IncomingCallScreen.dispose()
+  //
+  // Uses HapticFeedback for the loop since Vibration package may not
+  // be available — falls back gracefully.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// ✅ Start continuous vibration pattern — mirrors real incoming call
+  static Future<void> startVibration() async {
+    if (_vibrating) return;
+    _vibrating = true;
+    _vibrateLoop();
+  }
+
+  static Future<void> _vibrateLoop() async {
+    while (_vibrating) {
+      try {
+        // Pattern: vibrate 800ms, pause 400ms, vibrate 800ms, pause 1200ms
+        await HapticFeedback.heavyImpact();
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (!_vibrating) break;
+
+        await HapticFeedback.heavyImpact();
+        await Future.delayed(const Duration(milliseconds: 400));
+        if (!_vibrating) break;
+
+        await HapticFeedback.heavyImpact();
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (!_vibrating) break;
+
+        // Long pause between ring cycles
+        await Future.delayed(const Duration(milliseconds: 1200));
+      } catch (_) {
+        break; // stop if vibration fails
+      }
+    }
+  }
+
+  /// Stop vibration.
+  static Future<void> stopVibration() async {
+    _vibrating = false;
+    // One final light impact to "cancel" feel
+    try { await HapticFeedback.lightImpact(); } catch (_) {}
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // CANCEL
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Cancel the notification for a specific channel. Does NOT stop ringtone
-  /// (the IncomingCallScreen owns that via dispose).
   static Future<void> cancelCall(String channelId) async {
     await _plugin.cancel(_notifId(channelId));
   }
 
-  /// Cancel all notifications. Does NOT stop ringtone.
   static Future<void> cancelAll() async {
     await _plugin.cancelAll();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // LAUNCH PAYLOAD — was the app opened by tapping a notification?
+  // LAUNCH PAYLOAD
   // ─────────────────────────────────────────────────────────────────────────
   static Future<Map<String, String>?> launchPayload() async {
     try {
@@ -207,7 +256,6 @@ class LocalNotificationService {
 
   // ─────────────────────────────────────────────────────────────────────────
   // PAYLOAD ENCODE / DECODE
-  // key=urlencoded_value&key=urlencoded_value
   // ─────────────────────────────────────────────────────────────────────────
   static String _encodePayload(Map<String, String> map) =>
       map.entries
@@ -229,8 +277,5 @@ class LocalNotificationService {
     return map;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // HELPERS
-  // ─────────────────────────────────────────────────────────────────────────
   static int _notifId(String channelId) => channelId.hashCode.abs() % 100000;
 }

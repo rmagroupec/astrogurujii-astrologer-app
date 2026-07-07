@@ -1140,19 +1140,32 @@ class _MessageListState extends State<_MessageList> {
   String? _previewUrl;
   final ScrollController _scrollCtrl = ScrollController();
   int _prevCount = 0;
+   bool _prevUploading = false;
 
   @override void dispose() { _scrollCtrl.dispose(); super.dispose(); }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve   : Curves.easeOut);
-      }
-    });
-  }
+ void _scrollToBottom() {
+  // ✅ First frame — scroll immediately (for text messages)
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!_scrollCtrl.hasClients) return;
+    _scrollCtrl.animateTo(
+      _scrollCtrl.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 300),
+      curve   : Curves.easeOut,
+    );
+  });
+
+  // ✅ Second scroll after short delay — catches images/audio
+  // that finish rendering after the first frame (async content)
+  Future.delayed(const Duration(milliseconds: 400), () {
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    _scrollCtrl.animateTo(
+      _scrollCtrl.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 200),
+      curve   : Curves.easeOut,
+    );
+  });
+}
 
   @override
   Widget build(BuildContext context) {
@@ -1164,7 +1177,12 @@ class _MessageListState extends State<_MessageList> {
         builder: (context, chat, _) {
           final total = chat.messages.length + (chat.isUploading ? 1 : 0);
           if (total > _prevCount) { _prevCount = total; _scrollToBottom(); }
-
+if (_prevUploading && !chat.isUploading) {
+            _prevUploading = false;
+            _scrollToBottom();
+          } else {
+            _prevUploading = chat.isUploading;
+          }
           return ListView.builder(
             controller: _scrollCtrl,
             padding   : const EdgeInsets.only(bottom: 10, top: 8),

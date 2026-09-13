@@ -164,12 +164,28 @@ class CallRingtoneService : Service() {
         val id = if (notifId > 0) notifId else FALLBACK_NOTIF_ID
         val notification = adoptedOrFallbackNotification(notifId, title, body)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // IMPORTANT: this is NOT FOREGROUND_SERVICE_TYPE_PHONE_CALL.
+            // That type is gated by Android 14+ to apps that are the
+            // default dialer OR hold MANAGE_OWN_CALLS + use
+            // ConnectionService — neither of which applies here. Declaring
+            // or requesting that type without meeting those conditions
+            // makes startForeground() fail every time on Android 14+,
+            // which is exactly why ringing silently never started even
+            // though everything else was wired correctly.
+            //
+            // "shortService" (Android 14+) is the correct type for a
+            // brief, self-terminating task like this: no dialer role, no
+            // special permission beyond the base FOREGROUND_SERVICE
+            // already declared, capped at ~3 minutes — comfortably above
+            // our 45s ring timeout. Pre-Android 14 devices don't enforce
+            // (or even have) foreground service types at all, so they just
+            // get a plain startForeground() call.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 ServiceCompat.startForeground(
                     this,
                     id,
                     notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE,
                 )
             } else {
                 startForeground(id, notification)

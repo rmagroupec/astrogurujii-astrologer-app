@@ -5,15 +5,23 @@
       AndroidManifest.xml — Gradle's manifest merger folds this into the
       final app manifest automatically, so no manual edits to the app
       module are required. All permissions this service needs
-      (FOREGROUND_SERVICE, FOREGROUND_SERVICE_PHONE_CALL, WAKE_LOCK,
-      VIBRATE, USE_FULL_SCREEN_INTENT, POST_NOTIFICATIONS) are already
-      declared in the app's own manifest.
+      (FOREGROUND_SERVICE, WAKE_LOCK, VIBRATE, USE_FULL_SCREEN_INTENT,
+      POST_NOTIFICATIONS) are already declared in the app's own manifest.
+
+      foregroundServiceType is "shortService", NOT "phoneCall". The
+      phoneCall type is gated on Android 14+ to apps that are the default
+      dialer or hold MANAGE_OWN_CALLS + ConnectionService — this app is
+      neither, so that type made startForeground() fail on every modern
+      device, which was the actual root cause of the ringtone never
+      playing. shortService requires no special role/permission and is
+      built for exactly this: a brief (<3 min), self-terminating
+      foreground task.
     -->
     <application>
         <service
             android:name="com.astrologer.vaidikguru.astrocallkit.CallRingtoneService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall" />
+            android:foregroundServiceType="shortService" />
     </application>
 
 </manifest>

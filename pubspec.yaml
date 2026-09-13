@@ -45,7 +45,6 @@ dependencies:
   flutter_secure_storage: ^10.0.0
   flutter_html: ^3.0.0
   agora_rtc_engine: ^6.5.4
-  flutter_ringtone_player: ^4.0.0+4
   permission_handler: ^12.0.1
   url_launcher: ^6.3.2
   flutter_sound: ^9.30.0
@@ -57,6 +56,12 @@ dependencies:
   cached_network_image: ^3.4.1
   android_intent_plus: ^6.0.0
   package_info_plus: ^9.0.1
+
+  # Native Android foreground service that owns the incoming-call ringtone
+  # + vibration so they survive independently of the Dart/Flutter engine —
+  # see packages/astro_call_kit/README for why this had to be native.
+  astro_call_kit:
+    path: packages/astro_call_kit
 
 dev_dependencies:
   flutter_test:

@@ -1,0 +1,27 @@
+name: astro_call_kit
+description: >
+  Native Android call-style ringtone + foreground service for incoming
+  call/chat/video push notifications. Keeps ringing reliably whether the
+  app is foreground, backgrounded, or fully killed.
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: ^3.8.1
+  flutter: ">=3.3.0"
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.astrologer.vaidikguru.astrocallkit
+        pluginClass: AstroCallKitPlugin
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0

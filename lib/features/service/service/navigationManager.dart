@@ -84,6 +84,7 @@ class NavigationManager {
             userName     : userName,
             userAvatar   : userAvatar,
             messagePreview: messagePreview,
+            channelId    : channelId,
           ),
         ),
       );

@@ -38,7 +38,11 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen>
       vsync   : this,
       duration: const Duration(seconds: 2),
     )..repeat();
-    LocalNotificationService.playRingtone();
+    LocalNotificationService.playRingtone(
+      widget.channelId,
+      title: 'Incoming Video Call',
+      body : '${widget.userName} is calling',
+    );
     LocalNotificationService.startVibration();
   }
 

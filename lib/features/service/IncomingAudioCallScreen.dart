@@ -44,7 +44,11 @@ class _IncomingAudioCallScreenState extends State<IncomingAudioCallScreen>
       vsync   : this,
       duration: const Duration(seconds: 2),
     )..repeat();
-    LocalNotificationService.playRingtone();
+    LocalNotificationService.playRingtone(
+      widget.channelId,
+      title: 'Incoming Audio Call',
+      body : '${widget.userName} is calling',
+    );
     LocalNotificationService.startVibration();
   }
 

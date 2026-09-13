@@ -1,0 +1,1131 @@
+diff --git a/lib/features/service/IncomingAudioCallScreen.dart b/lib/features/service/IncomingAudioCallScreen.dart
+index 1cc0996..719061a 100644
+--- a/lib/features/service/IncomingAudioCallScreen.dart
++++ b/lib/features/service/IncomingAudioCallScreen.dart
+@@ -44,7 +44,11 @@ class _IncomingAudioCallScreenState extends State<IncomingAudioCallScreen>
+       vsync   : this,
+       duration: const Duration(seconds: 2),
+     )..repeat();
+-    LocalNotificationService.playRingtone();
++    LocalNotificationService.playRingtone(
++      widget.channelId,
++      title: 'Incoming Audio Call',
++      body : '${widget.userName} is calling',
++    );
+     LocalNotificationService.startVibration();
+   }
+ 
+diff --git a/lib/features/service/IncomingChatScreen.dart b/lib/features/service/IncomingChatScreen.dart
+index f0337a1..162b7f7 100644
+--- a/lib/features/service/IncomingChatScreen.dart
++++ b/lib/features/service/IncomingChatScreen.dart
+@@ -9,12 +9,14 @@ class IncomingChatRequestScreen extends StatefulWidget {
+   final String userName;
+   final String userAvatar;
+   final String messagePreview;
++  final String channelId;
+ 
+   const IncomingChatRequestScreen({
+     super.key,
+     required this.userName,
+     required this.userAvatar,
+     required this.messagePreview,
++    required this.channelId,
+   });
+ 
+   @override
+@@ -41,7 +43,11 @@ class _IncomingChatRequestScreenState
+     _pulse = Tween<double>(begin: 0.95, end: 1.05).animate(
+         CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+ 
+-    LocalNotificationService.playRingtone();
++    LocalNotificationService.playRingtone(
++      widget.channelId,
++      title: 'Incoming Chat Request',
++      body : '${widget.userName} wants to chat',
++    );
+     LocalNotificationService.startVibration();   // ✅ continuous vibration
+ 
+   }
+diff --git a/lib/features/service/IncomingVideoCallScreen.dart b/lib/features/service/IncomingVideoCallScreen.dart
+index 9c5e61a..ca01b11 100644
+--- a/lib/features/service/IncomingVideoCallScreen.dart
++++ b/lib/features/service/IncomingVideoCallScreen.dart
+@@ -38,7 +38,11 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen>
+       vsync   : this,
+       duration: const Duration(seconds: 2),
+     )..repeat();
+-    LocalNotificationService.playRingtone();
++    LocalNotificationService.playRingtone(
++      widget.channelId,
++      title: 'Incoming Video Call',
++      body : '${widget.userName} is calling',
++    );
+     LocalNotificationService.startVibration();
+   }
+ 
+diff --git a/lib/features/service/service/navigationManager.dart b/lib/features/service/service/navigationManager.dart
+index e55d59a..06558a1 100644
+--- a/lib/features/service/service/navigationManager.dart
++++ b/lib/features/service/service/navigationManager.dart
+@@ -84,6 +84,7 @@ class NavigationManager {
+             userName     : userName,
+             userAvatar   : userAvatar,
+             messagePreview: messagePreview,
++            channelId    : channelId,
+           ),
+         ),
+       );
+diff --git a/lib/main.dart b/lib/main.dart
+index 2d8af57..45aacac 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -26,10 +26,12 @@ import 'package:shared_preferences/shared_preferences.dart';
+ // ─────────────────────────────────────────────────────────────────────────────
+ // BACKGROUND ISOLATE HANDLER
+ // Runs in a SEPARATE Dart isolate — no Flutter widgets, no Navigator.
+-// Rules:
++// This isolate is torn down by Android within seconds of this function
++// returning, so:
+ //   ✅ persist() the call data to SharedPreferences
+ //   ✅ showIncomingCall() — fullscreen notification to wake lock screen
+-//   ❌ NEVER play ringtone here — wrong isolate, no audio focus
++//   ✅ hand off to astro_call_kit — it starts a native Android foreground
++//      service that keeps ringing/vibrating long after THIS isolate dies
+ //   ❌ NEVER navigate here — no Navigator
+ // ─────────────────────────────────────────────────────────────────────────────
+ @pragma('vm:entry-point')
+@@ -48,19 +50,35 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+   final data = message.data;
+   if (!IncomingCallRouter.isCallData(data)) return;
+ 
++  final stringData = data.map((k, v) => MapEntry(k, v.toString()));
++  final channelId  = stringData['channel_id'] ?? '';
++  final title      = stringData['title'] ?? 'Incoming Call';
++  final body       = '${stringData['user_name'] ?? 'Someone'} is calling';
++
+   // 1. Persist so the main isolate can route when app resumes
+-  await IncomingCallRouter.persist(
+-      data.map((k, v) => MapEntry(k, v.toString())));
++  await IncomingCallRouter.persist(stringData);
+ 
+   // 2. Show fullscreen notification — wakes lock screen, shows Accept/Reject
+   //    We must re-init the plugin in THIS isolate
+   await LocalNotificationService.initialize(onNotificationAction);
+   await LocalNotificationService.showIncomingCall(
+-    title  : data['title']     ?? 'Incoming Call',
+-    body   : '${data['user_name'] ?? 'Someone'} is calling',
+-    payload: data.map((k, v) => MapEntry(k, v.toString())),
++    title  : title,
++    body   : body,
++    payload: stringData,
+   );
+-  // NOTE: NO ringtone here — IncomingCallScreen in main isolate handles it
++
++  // 3. Start native ringing — this is what makes the phone actually ring
++  //    while the app is backgrounded or fully killed. astro_call_kit's
++  //    CallRingtoneService keeps running (and ringing) independently of
++  //    this isolate, which Android will tear down moments after this
++  //    function returns.
++  if (channelId.isNotEmpty) {
++    await LocalNotificationService.playRingtone(
++      channelId,
++      title: title,
++      body : body,
++    );
++  }
+ }
+ 
+ // ─────────────────────────────────────────────────────────────────────────────
+diff --git a/lib/service/localNotificationService.dart b/lib/service/localNotificationService.dart
+index 0e4dc19..1890c44 100644
+--- a/lib/service/localNotificationService.dart
++++ b/lib/service/localNotificationService.dart
+@@ -3,18 +3,26 @@
+ // PRODUCTION-GRADE: handles all 3 app states correctly
+ //
+ // ARCHITECTURE RULES (never break these):
+-//   1. Ringtone ONLY plays in main isolate (IncomingCallScreen owns it)
+-//   2. Background isolate: persist data + show SILENT fullscreen notification only
+-//   3. Notification channel has NO sound/vibration (we control it manually)
+-//   4. One notification ID per channel_id (hash) — prevents duplicates
++//   1. Ringtone + vibration are owned NATIVELY by astro_call_kit's
++//      CallRingtoneService (a real Android foreground service), NOT by
++//      Dart — that's what lets ringing survive foreground, background,
++//      AND fully-killed states identically. See packages/astro_call_kit.
++//   2. Background isolate: persist data + show fullscreen notification,
++//      then hand off to astro_call_kit so ringing keeps going after this
++//      isolate is torn down a few seconds later.
++//   3. Notification channel has NO sound/vibration (astro_call_kit owns
++//      both, tied to the actual ring lifecycle instead of a one-shot
++//      channel sound)
++//   4. One notification ID per channel_id (hash) — prevents duplicates.
++//      astro_call_kit's foreground service ADOPTS this exact notification
++//      (same ID) instead of posting a second one.
+ //   5. cancelCall() always stops ringtone + cancels notification atomically
+ 
+ import 'dart:convert';
+ import 'dart:typed_data';
+ 
+-import 'package:flutter/services.dart';
++import 'package:astro_call_kit/astro_call_kit.dart';
+ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+ 
+ class LocalNotificationService {
+   LocalNotificationService._();
+@@ -30,14 +38,13 @@ class LocalNotificationService {
+   static const String _callChannelId   = 'astro_incoming_call';
+   static const String _callChannelName = 'Incoming Calls';
+ 
+-  // ── Ringtone guard — static, main isolate only ───────────────────────────
+-  // IMPORTANT: this flag is meaningless in background isolate.
+-  // Only IncomingCallScreen calls playRingtone()/stopRingtone().
++  // ── Ringtone guard ────────────────────────────────────────────────────────
++  // Local, best-effort mirror of native ring state for this isolate only —
++  // the real source of truth is CallRingtoneService.isRinging on the native
++  // side (see AstroCallKit.isRinging()), since ringing must be correct even
++  // across isolates that don't share this static field.
+   static bool _ringing = false;
+ 
+-  // ── Vibration guard ───────────────────────────────────────────────────────
+-  static bool _vibrating = false;
+-
+   // ─────────────────────────────────────────────────────────────────────────
+   // INIT — call once from main() and once from firebaseMessagingBackgroundHandler
+   // ─────────────────────────────────────────────────────────────────────────
+@@ -66,8 +73,8 @@ class LocalNotificationService {
+             _callChannelName,
+             description    : 'Audio, video, and chat calls from users',
+             importance     : Importance.max,
+-            // ✅ Channel itself has NO sound — we manage via FlutterRingtonePlayer
+-            // ✅ Vibration ON at channel level so Android allows it
++            // ✅ Channel itself has NO sound — astro_call_kit's native
++            //    foreground service owns the actual ringtone/vibration
+             playSound      : false,
+             enableVibration: true,
+             showBadge      : true,
+@@ -86,10 +93,9 @@ class LocalNotificationService {
+     final payloadStr = _encodePayload(payload);
+     final notifId    = _notifId(payload['channel_id'] ?? 'call');
+ 
+-    // ✅ Repeating vibration pattern:
+-    // [delay, vibrate, pause, vibrate, pause, vibrate, long-pause] × repeat
+-    // This pattern fires once per notification show — for continuous vibration
+-    // we use playVibration() separately from the IncomingScreen
++    // One-shot pattern for the notification's own (silent-channel) buzz on
++    // first post — continuous vibration for the full ring duration is
++    // owned by astro_call_kit's native foreground service.
+     final vibration = Int64List.fromList([
+       0, 1000, 500, 1000, 500, 1000, 1500,
+     ]);
+@@ -112,7 +118,7 @@ class LocalNotificationService {
+       timeoutAfter : 45000,  // 45s auto-dismiss
+ 
+       // ── Sound & vibration ─────────────────────────────────────────────
+-      // ✅ playSound: false — ringtone handled by FlutterRingtonePlayer
++      // ✅ playSound: false — ringtone handled natively by astro_call_kit
+       // ✅ enableVibration: true — pattern fires when notification shows
+       playSound       : false,
+       enableVibration : true,
+@@ -145,87 +151,70 @@ class LocalNotificationService {
+   }
+ 
+   // ─────────────────────────────────────────────────────────────────────────
+-  // RINGTONE — main isolate only
++  // RINGTONE + VIBRATION — now owned NATIVELY by astro_call_kit
++  //
++  // These are called from every app state: the main isolate (Incoming
++  // screens' initState/dispose), the FCM background isolate
++  // (firebaseMessagingBackgroundHandler), AND the notification-action
++  // background isolate (onNotificationAction / onDidReceiveBackground-
++  // NotificationResponse). All three isolates have astro_call_kit's
++  // MethodChannel available because it is registered as a real Flutter
++  // plugin (GeneratedPluginRegistrant attaches it to every FlutterEngine,
++  // headless ones included) — a bare MethodChannel wired only in
++  // MainActivity would NOT be reachable from the background isolates.
++  //
++  // The actual ringing/vibrating/auto-timeout lives in
++  // packages/astro_call_kit's CallRingtoneService, a real Android
++  // foreground service, so it survives long after whichever Dart isolate
++  // triggered it has been torn down.
+   // ─────────────────────────────────────────────────────────────────────────
+ 
+-  /// ✅ Start ringing — uses asAlarm: true so it plays even on silent/DND
+-  /// (matches real phone call behavior on Android)
+-  static Future<void> playRingtone() async {
+-    if (_ringing) return;
++  /// ✅ Start ringing for [channelId] — bypasses silent mode the same way a
++  /// real phone call does (native `USAGE_NOTIFICATION_RINGTONE` + a CALL-
++  /// category notification). Idempotent: safe to call again while already
++  /// ringing for the same call (e.g. the Incoming screen re-confirming
++  /// after the app resumes to the foreground).
++  static Future<void> playRingtone(
++    String channelId, {
++    String title = 'Incoming Call',
++    String body  = 'is calling',
++  }) async {
++    if (channelId.isEmpty) return;
+     _ringing = true;
+-    await FlutterRingtonePlayer().playRingtone(
+-      looping: true,
+-      volume : 1.0,
+-      asAlarm: true,   // ✅ bypasses silent mode — plays like a real call
++    await AstroCallKit.startRinging(
++      channelId: channelId,
++      notifId  : _notifId(channelId),
++      title    : title,
++      body     : body,
+     );
+   }
+ 
+-  /// Stop ringing. Safe to call multiple times.
++  /// Stop ringing + vibration. Safe to call multiple times, and safe to
++  /// call from any isolate (see note above).
+   static Future<void> stopRingtone() async {
+-    if (!_ringing) return;
+     _ringing = false;
+-    await FlutterRingtonePlayer().stop();
+-    // ✅ also stop vibration when ringtone stops
+-    await stopVibration();
++    await AstroCallKit.stopRinging();
+   }
+ 
+-  /// Force stop — used by onNotificationAction which runs in a fresh isolate
+-  /// where _ringing=false but ringtone may be playing in the main isolate.
+-  static Future<void> forceStopRingtone() async {
+-    _ringing   = false;
+-    _vibrating = false;
+-    await FlutterRingtonePlayer().stop();
+-    try {
+-      await HapticFeedback.vibrate(); // cancel any ongoing vibration
+-    } catch (_) {}
+-  }
++  /// Alias kept for existing call sites — stopping the native foreground
++  /// service is inherently isolate-independent, so there is no longer a
++  /// meaningful difference between "stop" and "force stop".
++  static Future<void> forceStopRingtone() => stopRingtone();
++
++  /// True if astro_call_kit currently believes it is ringing.
++  static Future<bool> isRinging() => AstroCallKit.isRinging();
+ 
+   // ─────────────────────────────────────────────────────────────────────────
+-  // VIBRATION — continuous pattern while ringing
+-  // Call startVibration() from IncomingCallScreen.initState()
+-  // Call stopVibration() from IncomingCallScreen.dispose()
++  // VIBRATION — kept as no-op call-site shims.
+   //
+-  // Uses HapticFeedback for the loop since Vibration package may not
+-  // be available — falls back gracefully.
++  // Vibration is now driven natively by CallRingtoneService for the exact
++  // duration of the ring (tied to the same lifecycle as the ringtone
++  // itself, including surviving app kill). These methods are kept so
++  // existing call sites (IncomingCallScreen.initState/dispose) don't need
++  // to change, but they intentionally do nothing anymore.
+   // ─────────────────────────────────────────────────────────────────────────
+-
+-  /// ✅ Start continuous vibration pattern — mirrors real incoming call
+-  static Future<void> startVibration() async {
+-    if (_vibrating) return;
+-    _vibrating = true;
+-    _vibrateLoop();
+-  }
+-
+-  static Future<void> _vibrateLoop() async {
+-    while (_vibrating) {
+-      try {
+-        // Pattern: vibrate 800ms, pause 400ms, vibrate 800ms, pause 1200ms
+-        await HapticFeedback.heavyImpact();
+-        await Future.delayed(const Duration(milliseconds: 800));
+-        if (!_vibrating) break;
+-
+-        await HapticFeedback.heavyImpact();
+-        await Future.delayed(const Duration(milliseconds: 400));
+-        if (!_vibrating) break;
+-
+-        await HapticFeedback.heavyImpact();
+-        await Future.delayed(const Duration(milliseconds: 800));
+-        if (!_vibrating) break;
+-
+-        // Long pause between ring cycles
+-        await Future.delayed(const Duration(milliseconds: 1200));
+-      } catch (_) {
+-        break; // stop if vibration fails
+-      }
+-    }
+-  }
+-
+-  /// Stop vibration.
+-  static Future<void> stopVibration() async {
+-    _vibrating = false;
+-    // One final light impact to "cancel" feel
+-    try { await HapticFeedback.lightImpact(); } catch (_) {}
+-  }
++  static Future<void> startVibration() async {}
++  static Future<void> stopVibration() async {}
+ 
+   // ─────────────────────────────────────────────────────────────────────────
+   // CANCEL
+@@ -233,6 +222,12 @@ class LocalNotificationService {
+ 
+   static Future<void> cancelCall(String channelId) async {
+     await _plugin.cancel(_notifId(channelId));
++    // Always stop native ringing alongside the notification — otherwise a
++    // foreground-service-owned notification can outlive a plain cancel()
++    // (Android won't let a plain NotificationManager.cancel() dismiss a
++    // notification an active foreground service has adopted via
++    // startForeground(); only that service calling stopForeground() can).
++    await stopRingtone();
+   }
+ 
+   static Future<void> cancelAll() async {
+diff --git a/packages/astro_call_kit/README.md b/packages/astro_call_kit/README.md
+new file mode 100644
+index 0000000..306ce39
+--- /dev/null
++++ b/packages/astro_call_kit/README.md
+@@ -0,0 +1,59 @@
++# astro_call_kit
++
++Android-only local Flutter plugin. It exists to fix one specific, previously
++broken thing: **the incoming-call ringtone never played when the app was
++backgrounded or fully killed.**
++
++## Why this needed native code
++
++`firebaseMessagingBackgroundHandler()` (in `lib/main.dart`) runs in a
++headless Flutter engine that Android tears down within a few seconds of the
++handler returning. Anything that handler starts — like the old
++`FlutterRingtonePlayer().playRingtone()` call — dies with that engine. A
++real Android `Service` has no such limit: once started with
++`startForegroundService()`, it keeps running (and ringing) completely
++independently of any Flutter engine, until it's explicitly stopped or its
++own safety-net timeout fires.
++
++## Why it's a real Flutter plugin instead of a MethodChannel in MainActivity
++
++A `MethodChannel` set up only inside `MainActivity.configureFlutterEngine()`
++is invisible to the headless background engine `firebase_messaging` spins
++up — that engine only gets the channels that `GeneratedPluginRegistrant`
++attaches to it, which is exactly the pub-plugin registration mechanism.
++Shipping this as a proper (if local, `path:`-referenced) Flutter plugin is
++what makes `astro_call_kit`'s channel available from
++`firebaseMessagingBackgroundHandler`, from the notification's
++Accept/Reject background-response isolate, and from the normal
++foreground/main isolate — with the exact same Dart API in all three.
++
++## What it does / doesn't own
++
++- **Owns:** the ringtone (native `MediaPlayer` + `AudioAttributes` looping
++  the device's default ringtone), continuous vibration, audio focus, a
++  wake lock, and a 45s missed-call safety-net timeout.
++- **Does NOT own:** the visible call notification. `startRinging()` adopts
++  the notification `flutter_local_notifications` already posted (matched
++  by the same integer notification ID) via `startForeground()`, so there
++  is exactly one notification with its existing Accept/Reject dispatch —
++  unchanged, untouched, still fully working in every app state.
++
++## Dart API (`lib/astro_call_kit.dart`)
++
++```dart
++await AstroCallKit.startRinging(
++  channelId: channelId,
++  notifId  : notifId,   // must match LocalNotificationService's notifId
++  title    : title,
++  body     : body,
++);
++
++await AstroCallKit.stopRinging();
++
++final ringing = await AstroCallKit.isRinging();
++```
++
++In this app, all three call sites go through
++`lib/service/localNotificationService.dart`'s `playRingtone()` /
++`stopRingtone()` / `forceStopRingtone()` — nothing else needs to call this
++plugin directly.
+diff --git a/packages/astro_call_kit/android/build.gradle b/packages/astro_call_kit/android/build.gradle
+new file mode 100644
+index 0000000..b68cfc1
+--- /dev/null
++++ b/packages/astro_call_kit/android/build.gradle
+@@ -0,0 +1,47 @@
++group 'com.astrologer.vaidikguru.astrocallkit'
++version '1.0'
++
++buildscript {
++    ext.kotlin_version = '2.1.0'
++    repositories {
++        google()
++        mavenCentral()
++    }
++
++    dependencies {
++        classpath 'com.android.tools.build:gradle:8.7.3'
++        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
++    }
++}
++
++rootProject.allprojects {
++    repositories {
++        google()
++        mavenCentral()
++    }
++}
++
++apply plugin: 'com.android.library'
++apply plugin: 'kotlin-android'
++
++android {
++    namespace 'com.astrologer.vaidikguru.astrocallkit'
++    compileSdk 36
++
++    defaultConfig {
++        minSdk 24
++    }
++
++    compileOptions {
++        sourceCompatibility JavaVersion.VERSION_11
++        targetCompatibility JavaVersion.VERSION_11
++    }
++
++    kotlinOptions {
++        jvmTarget = '11'
++    }
++}
++
++dependencies {
++    implementation 'androidx.core:core-ktx:1.13.1'
++}
+diff --git a/packages/astro_call_kit/android/src/main/AndroidManifest.xml b/packages/astro_call_kit/android/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..226d12c
+--- /dev/null
++++ b/packages/astro_call_kit/android/src/main/AndroidManifest.xml
+@@ -0,0 +1,19 @@
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <!--
++      Declared here (in the plugin's own manifest) instead of the app's
++      AndroidManifest.xml — Gradle's manifest merger folds this into the
++      final app manifest automatically, so no manual edits to the app
++      module are required. All permissions this service needs
++      (FOREGROUND_SERVICE, FOREGROUND_SERVICE_PHONE_CALL, WAKE_LOCK,
++      VIBRATE, USE_FULL_SCREEN_INTENT, POST_NOTIFICATIONS) are already
++      declared in the app's own manifest.
++    -->
++    <application>
++        <service
++            android:name="com.astrologer.vaidikguru.astrocallkit.CallRingtoneService"
++            android:exported="false"
++            android:foregroundServiceType="phoneCall" />
++    </application>
++
++</manifest>
+diff --git a/packages/astro_call_kit/android/src/main/kotlin/com/astrologer/vaidikguru/astrocallkit/AstroCallKitPlugin.kt b/packages/astro_call_kit/android/src/main/kotlin/com/astrologer/vaidikguru/astrocallkit/AstroCallKitPlugin.kt
+new file mode 100644
+index 0000000..19e587b
+--- /dev/null
++++ b/packages/astro_call_kit/android/src/main/kotlin/com/astrologer/vaidikguru/astrocallkit/AstroCallKitPlugin.kt
+@@ -0,0 +1,56 @@
++package com.astrologer.vaidikguru.astrocallkit
++
++import android.content.Context
++import io.flutter.embedding.engine.plugins.FlutterPlugin
++import io.flutter.plugin.common.MethodCall
++import io.flutter.plugin.common.MethodChannel
++import io.flutter.plugin.common.MethodChannel.MethodCallHandler
++import io.flutter.plugin.common.MethodChannel.Result
++
++/**
++ * Registers the "astro_call_kit" MethodChannel on EVERY FlutterEngine the
++ * app creates — the main-isolate engine AND the headless background engine
++ * that `firebase_messaging` spins up for background/killed push delivery.
++ *
++ * That's the whole point of shipping this as a real Flutter plugin instead
++ * of a one-off MethodChannel wired only inside MainActivity: a channel set
++ * up only in `MainActivity.configureFlutterEngine()` is invisible to the
++ * headless background engine, so a "start ringing" call issued from
++ * `firebaseMessagingBackgroundHandler` would silently go nowhere. Flutter's
++ * plugin auto-registration (`GeneratedPluginRegistrant`) is what guarantees
++ * this class gets attached to both.
++ */
++class AstroCallKitPlugin : FlutterPlugin, MethodCallHandler {
++
++    private lateinit var appContext: Context
++    private lateinit var channel: MethodChannel
++
++    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
++        appContext = binding.applicationContext
++        channel = MethodChannel(binding.binaryMessenger, "astro_call_kit")
++        channel.setMethodCallHandler(this)
++    }
++
++    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
++        channel.setMethodCallHandler(null)
++    }
++
++    override fun onMethodCall(call: MethodCall, result: Result) {
++        when (call.method) {
++            "startRinging" -> {
++                val channelId = call.argument<String>("channelId") ?: ""
++                val notifId = call.argument<Int>("notifId") ?: -1
++                val title = call.argument<String>("title") ?: "Incoming Call"
++                val body = call.argument<String>("body") ?: "is calling"
++                CallRingtoneService.start(appContext, channelId, notifId, title, body)
++                result.success(null)
++            }
++            "stopRinging" -> {
++                CallRingtoneService.stop(appContext)
++                result.success(null)
++            }
++            "isRinging" -> result.success(CallRingtoneService.isRinging)
++            else -> result.notImplemented()
++        }
++    }
++}
+diff --git a/packages/astro_call_kit/android/src/main/kotlin/com/astrologer/vaidikguru/astrocallkit/CallRingtoneService.kt b/packages/astro_call_kit/android/src/main/kotlin/com/astrologer/vaidikguru/astrocallkit/CallRingtoneService.kt
+new file mode 100644
+index 0000000..8302741
+--- /dev/null
++++ b/packages/astro_call_kit/android/src/main/kotlin/com/astrologer/vaidikguru/astrocallkit/CallRingtoneService.kt
+@@ -0,0 +1,396 @@
++package com.astrologer.vaidikguru.astrocallkit
++
++import android.app.Notification
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.app.Service
++import android.content.Context
++import android.content.Intent
++import android.content.pm.ServiceInfo
++import android.media.AudioAttributes
++import android.media.AudioFocusRequest
++import android.media.AudioManager
++import android.media.MediaPlayer
++import android.media.RingtoneManager
++import android.os.Build
++import android.os.Handler
++import android.os.IBinder
++import android.os.Looper
++import android.os.PowerManager
++import android.os.VibrationEffect
++import android.os.Vibrator
++import android.os.VibratorManager
++import androidx.core.app.NotificationCompat
++import androidx.core.app.ServiceCompat
++
++/**
++ * Foreground service that owns the ringtone + vibration for an incoming
++ * call/chat/video request, and keeps them going independently of the
++ * Dart/Flutter engine.
++ *
++ * That independence is the entire point: Dart's FCM background isolate is
++ * torn down within seconds of `firebaseMessagingBackgroundHandler()`
++ * returning, so anything it started there (the old
++ * `FlutterRingtonePlayer` call) died with it — which is exactly why the
++ * ringtone never used to play when the app was backgrounded or killed. A
++ * real Android [Service] has no such lifetime limit; once started with
++ * `startForegroundService`, it keeps running (and ringing) until it is
++ * explicitly stopped or the ring timeout fires, regardless of what happens
++ * to any Flutter engine.
++ *
++ * This service never builds its own *visible* call notification — on the
++ * normal path it looks up the one `flutter_local_notifications` already
++ * posted (same [Intent] extra `notifId`) and "adopts" it via
++ * `startForeground()`, so there is exactly one call notification on
++ * screen, with its existing Accept/Reject buttons untouched. It only
++ * builds a minimal fallback notification if that lookup fails, purely to
++ * satisfy Android's "call startForeground() within a few seconds" contract
++ * for a phoneCall-type foreground service.
++ */
++class CallRingtoneService : Service() {
++
++    companion object {
++        private const val FALLBACK_CHANNEL_ID = "astro_incoming_call_service"
++        private const val FALLBACK_CHANNEL_NAME = "Incoming Calls"
++        private const val RING_TIMEOUT_MS = 45_000L
++        private const val FALLBACK_NOTIF_ID = 999_001
++
++        private const val ACTION_START = "com.astrologer.vaidikguru.astrocallkit.action.START"
++        private const val ACTION_STOP = "com.astrologer.vaidikguru.astrocallkit.action.STOP"
++
++        @Volatile
++        var isRinging: Boolean = false
++            private set
++
++        /** Starts (or renews) native ringing. [channelId] is only used for
++         * logging/extras today but is passed through in case a future
++         * change needs to disambiguate concurrent calls. */
++        fun start(context: Context, channelId: String, notifId: Int, title: String, body: String) {
++            val intent = Intent(context, CallRingtoneService::class.java).apply {
++                action = ACTION_START
++                putExtra("channelId", channelId)
++                putExtra("notifId", notifId)
++                putExtra("title", title)
++                putExtra("body", body)
++            }
++            try {
++                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                    context.startForegroundService(intent)
++                } else {
++                    context.startService(intent)
++                }
++            } catch (_: Exception) {
++                // Extremely defensive — e.g. an OEM background-start
++                // restriction slipping through. Nothing more we can do
++                // from here; the visible notification (already posted by
++                // flutter_local_notifications) still shows.
++            }
++        }
++
++        fun stop(context: Context) {
++            // Deliberately a plain startService(), never startForegroundService():
++            // the STOP branch in onStartCommand() never calls startForeground(),
++            // so forcing the foreground-service contract here would risk an
++            // ANR/crash on a call where nothing was ringing to begin with.
++            // When the service IS already running as a foreground service
++            // (the normal case — stop() is always called moments after our
++            // own ring started), that existing foreground state is exemption
++            // enough for the app to message its own service.
++            val intent = Intent(context, CallRingtoneService::class.java).apply {
++                action = ACTION_STOP
++            }
++            try {
++                context.startService(intent)
++            } catch (_: Exception) {
++                // Service is probably already gone — nothing to stop.
++            }
++        }
++    }
++
++    private var mediaPlayer: MediaPlayer? = null
++    private var vibrator: Vibrator? = null
++    private var wakeLock: PowerManager.WakeLock? = null
++    private var audioManager: AudioManager? = null
++    private var audioFocusRequest: AudioFocusRequest? = null
++    private val timeoutHandler = Handler(Looper.getMainLooper())
++    private var timeoutRunnable: Runnable? = null
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        when (intent?.action) {
++            ACTION_STOP -> {
++                stopRingingInternal()
++                stopSelf()
++            }
++            else -> {
++                val channelId = intent?.getStringExtra("channelId") ?: ""
++                val notifId = intent?.getIntExtra("notifId", -1) ?: -1
++                val title = intent?.getStringExtra("title") ?: "Incoming Call"
++                val body = intent?.getStringExtra("body") ?: "is calling"
++                beginRinging(channelId, notifId, title, body)
++            }
++        }
++        return START_NOT_STICKY
++    }
++
++    override fun onDestroy() {
++        stopRingingInternal()
++        super.onDestroy()
++    }
++
++    // ── Start ────────────────────────────────────────────────────────────
++    private fun beginRinging(channelId: String, notifId: Int, title: String, body: String) {
++        promoteToForeground(notifId, title, body)
++
++        if (isRinging) {
++            // Already ringing (e.g. IncomingCallScreen re-confirmed after
++            // the app resumed into the foreground) — the foreground
++            // notification above was refreshed; leave the ringtone/
++            // vibration/timeout that are already running alone so there's
++            // no audible restart glitch.
++            return
++        }
++
++        isRinging = true
++        acquireWakeLock()
++        startRingtone()
++        startVibration()
++        scheduleTimeout()
++    }
++
++    private fun promoteToForeground(notifId: Int, title: String, body: String) {
++        val id = if (notifId > 0) notifId else FALLBACK_NOTIF_ID
++        val notification = adoptedOrFallbackNotification(notifId, title, body)
++        try {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++                ServiceCompat.startForeground(
++                    this,
++                    id,
++                    notification,
++                    ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
++                )
++            } else {
++                startForeground(id, notification)
++            }
++        } catch (_: Exception) {
++            try {
++                startForeground(id, notification)
++            } catch (_: Exception) {
++                // If even this fails the OS is refusing foreground starts
++                // outright (rare OEM lockdown) — ringtone/vibration below
++                // still run for as long as the process stays alive.
++            }
++        }
++    }
++
++    /** Reuses the notification flutter_local_notifications already posted
++     * at [notifId] (same title/body/Accept/Reject buttons) so the user
++     * never sees a second, duplicate call notification. Falls back to a
++     * minimal notification built here only if that lookup fails. */
++    private fun adoptedOrFallbackNotification(
++        notifId: Int,
++        title: String,
++        body: String,
++    ): Notification {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && notifId > 0) {
++            try {
++                val nm = getSystemService(NotificationManager::class.java)
++                val existing = nm?.activeNotifications?.firstOrNull { it.id == notifId }
++                if (existing != null) return existing.notification
++            } catch (_: Exception) {
++                // fall through to the minimal notification below
++            }
++        }
++        return buildFallbackNotification(title, body)
++    }
++
++    private fun buildFallbackNotification(title: String, body: String): Notification {
++        createFallbackChannelIfNeeded()
++
++        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
++            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
++        }
++        val contentIntent = launchIntent?.let {
++            PendingIntent.getActivity(
++                this,
++                0,
++                it,
++                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
++            )
++        }
++
++        return NotificationCompat.Builder(this, FALLBACK_CHANNEL_ID)
++            .setSmallIcon(applicationInfo.icon)
++            .setContentTitle(title)
++            .setContentText(body)
++            .setCategory(NotificationCompat.CATEGORY_CALL)
++            .setPriority(NotificationCompat.PRIORITY_MAX)
++            .setOngoing(true)
++            .setAutoCancel(false)
++            .setContentIntent(contentIntent)
++            .build()
++    }
++
++    private fun createFallbackChannelIfNeeded() {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            val nm = getSystemService(NotificationManager::class.java) ?: return
++            if (nm.getNotificationChannel(FALLBACK_CHANNEL_ID) == null) {
++                val channel = NotificationChannel(
++                    FALLBACK_CHANNEL_ID,
++                    FALLBACK_CHANNEL_NAME,
++                    NotificationManager.IMPORTANCE_HIGH,
++                ).apply {
++                    description = "Fallback incoming call notification"
++                    // The ringtone/vibration are handled by this service
++                    // directly — the channel itself stays silent so
++                    // Android never plays a second, competing sound.
++                    setSound(null, null)
++                    enableVibration(false)
++                }
++                nm.createNotificationChannel(channel)
++            }
++        }
++    }
++
++    // ── Ringtone ─────────────────────────────────────────────────────────
++    private fun startRingtone() {
++        try {
++            val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE)
++                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
++                ?: return
++
++            val attributes = AudioAttributes.Builder()
++                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
++                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
++                .build()
++
++            mediaPlayer = MediaPlayer().apply {
++                setAudioAttributes(attributes)
++                setDataSource(this@CallRingtoneService, uri)
++                isLooping = true
++                setOnErrorListener { _, _, _ -> true } // swallow — never crash the ring
++                prepare()
++                start()
++            }
++
++            requestAudioFocus(attributes)
++        } catch (_: Exception) {
++            // Never let a missing/broken ringtone crash the service —
++            // vibration + the visible notification still work.
++        }
++    }
++
++    private fun requestAudioFocus(attributes: AudioAttributes) {
++        try {
++            audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
++            val am = audioManager ?: return
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
++                    .setAudioAttributes(attributes)
++                    .setOnAudioFocusChangeListener { /* a ringing call always wins */ }
++                    .build()
++                audioFocusRequest = request
++                am.requestAudioFocus(request)
++            } else {
++                @Suppress("DEPRECATION")
++                am.requestAudioFocus(
++                    { /* ignored */ },
++                    AudioManager.STREAM_RING,
++                    AudioManager.AUDIOFOCUS_GAIN,
++                )
++            }
++        } catch (_: Exception) {
++        }
++    }
++
++    private fun abandonAudioFocus() {
++        try {
++            val am = audioManager ?: return
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
++            } else {
++                @Suppress("DEPRECATION")
++                am.abandonAudioFocus { }
++            }
++        } catch (_: Exception) {
++        }
++        audioFocusRequest = null
++        audioManager = null
++    }
++
++    // ── Vibration ────────────────────────────────────────────────────────
++    private fun startVibration() {
++        try {
++            vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
++            } else {
++                @Suppress("DEPRECATION")
++                getSystemService(VIBRATOR_SERVICE) as Vibrator
++            }
++            // Mirrors a real incoming call: buzz, pause, buzz, pause, buzz,
++            // long pause, repeat — index 0 means "repeat the whole array".
++            val pattern = longArrayOf(0, 1000, 500, 1000, 500, 1000, 1500)
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
++            } else {
++                @Suppress("DEPRECATION")
++                vibrator?.vibrate(pattern, 0)
++            }
++        } catch (_: Exception) {
++        }
++    }
++
++    // ── Wake lock ────────────────────────────────────────────────────────
++    private fun acquireWakeLock() {
++        try {
++            val pm = getSystemService(POWER_SERVICE) as PowerManager
++            wakeLock = pm.newWakeLock(
++                PowerManager.PARTIAL_WAKE_LOCK,
++                "astro_call_kit:ring_wake_lock",
++            ).apply { acquire(RING_TIMEOUT_MS + 5_000L) }
++        } catch (_: Exception) {
++        }
++    }
++
++    // ── Timeout — missed-call safety net ────────────────────────────────
++    // If nothing ever calls stopRinging() (app force-killed mid-ring,
++    // notification action broadcast lost, etc.) this guarantees the phone
++    // stops ringing on its own after RING_TIMEOUT_MS, matching the 45s
++    // `timeoutAfter` already used on the Dart-side notification.
++    private fun scheduleTimeout() {
++        val runnable = Runnable {
++            stopRingingInternal()
++            stopSelf()
++        }
++        timeoutRunnable = runnable
++        timeoutHandler.postDelayed(runnable, RING_TIMEOUT_MS)
++    }
++
++    // ── Stop everything ──────────────────────────────────────────────────
++    private fun stopRingingInternal() {
++        isRinging = false
++
++        timeoutRunnable?.let { timeoutHandler.removeCallbacks(it) }
++        timeoutRunnable = null
++
++        try { mediaPlayer?.stop() } catch (_: Exception) {}
++        try { mediaPlayer?.release() } catch (_: Exception) {}
++        mediaPlayer = null
++        abandonAudioFocus()
++
++        try { vibrator?.cancel() } catch (_: Exception) {}
++        vibrator = null
++
++        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
++        wakeLock = null
++
++        try {
++            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
++        } catch (_: Exception) {
++            @Suppress("DEPRECATION")
++            try { stopForeground(true) } catch (_: Exception) {}
++        }
++    }
++}
+diff --git a/packages/astro_call_kit/lib/astro_call_kit.dart b/packages/astro_call_kit/lib/astro_call_kit.dart
+new file mode 100644
+index 0000000..e7a4b37
+--- /dev/null
++++ b/packages/astro_call_kit/lib/astro_call_kit.dart
+@@ -0,0 +1,79 @@
++import 'package:flutter/services.dart';
++
++/// Native Android call-style ringtone + foreground service.
++///
++/// This plugin owns the *audio / vibration / foreground-service* side of an
++/// incoming call, video, or chat-request push notification. It keeps
++/// ringing reliably whether the app is in the foreground, backgrounded, or
++/// fully killed — because it lives in a real Android [Service], not in a
++/// Dart isolate that Android can (and does) tear down within seconds of
++/// `firebaseMessagingBackgroundHandler()` returning.
++///
++/// It deliberately does NOT touch the visible notification (title, body,
++/// Accept / Reject buttons) — that stays owned by
++/// `flutter_local_notifications`, so the already-working accept/reject
++/// dispatch (including its own background-isolate handling) keeps working
++/// completely unmodified. This plugin only *attaches itself* — via
++/// Android's `startForeground` contract — to the notification that is
++/// already posted, using [notifId], so the user only ever sees one call
++/// notification, never a duplicate.
++///
++/// Because this ships as a real Flutter plugin (not a one-off MethodChannel
++/// wired only inside `MainActivity`), its native side is registered on
++/// *every* FlutterEngine the app creates — including the headless
++/// background engine `firebase_messaging` spins up to run
++/// `firebaseMessagingBackgroundHandler` when a push arrives while the app
++/// is backgrounded or killed. That is what makes it possible to reliably
++/// start ringing from that background handler at all.
++class AstroCallKit {
++  AstroCallKit._();
++
++  static const MethodChannel _channel = MethodChannel('astro_call_kit');
++
++  /// Starts (or renews) native ringing + vibration for an incoming
++  /// call/chat/video request, and promotes the app to a foreground service
++  /// so Android cannot kill the ringing early.
++  ///
++  /// Safe to call multiple times — idempotent while already ringing.
++  ///
++  /// [notifId] MUST be the exact integer notification ID that
++  /// `LocalNotificationService` used to post the visible call notification
++  /// (see `LocalNotificationService._notifId`). Passing it lets the native
++  /// service attach to that same notification instead of creating a
++  /// second, duplicate one.
++  static Future<void> startRinging({
++    required String channelId,
++    required int notifId,
++    String title = 'Incoming Call',
++    String body = 'is calling',
++  }) async {
++    try {
++      await _channel.invokeMethod<void>('startRinging', {
++        'channelId': channelId,
++        'notifId': notifId,
++        'title': title,
++        'body': body,
++      });
++    } catch (_) {
++      // Ringing is best-effort — never let a platform hiccup crash the
++      // caller. The visible notification still shows either way.
++    }
++  }
++
++  /// Stops native ringing/vibration and releases the foreground service.
++  /// Safe to call even when nothing is currently ringing.
++  static Future<void> stopRinging() async {
++    try {
++      await _channel.invokeMethod<void>('stopRinging');
++    } catch (_) {}
++  }
++
++  /// True if the native service currently believes it is ringing.
++  static Future<bool> isRinging() async {
++    try {
++      return await _channel.invokeMethod<bool>('isRinging') ?? false;
++    } catch (_) {
++      return false;
++    }
++  }
++}
+diff --git a/packages/astro_call_kit/pubspec.yaml b/packages/astro_call_kit/pubspec.yaml
+new file mode 100644
+index 0000000..90b5596
+--- /dev/null
++++ b/packages/astro_call_kit/pubspec.yaml
+@@ -0,0 +1,27 @@
++name: astro_call_kit
++description: >
++  Native Android call-style ringtone + foreground service for incoming
++  call/chat/video push notifications. Keeps ringing reliably whether the
++  app is foreground, backgrounded, or fully killed.
++version: 0.0.1
++publish_to: 'none'
++
++environment:
++  sdk: ^3.8.1
++  flutter: ">=3.3.0"
++
++flutter:
++  plugin:
++    platforms:
++      android:
++        package: com.astrologer.vaidikguru.astrocallkit
++        pluginClass: AstroCallKitPlugin
++
++dependencies:
++  flutter:
++    sdk: flutter
++
++dev_dependencies:
++  flutter_test:
++    sdk: flutter
++  flutter_lints: ^5.0.0
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 3ed6af1..852c50f 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -45,7 +45,6 @@ dependencies:
+   flutter_secure_storage: ^10.0.0
+   flutter_html: ^3.0.0
+   agora_rtc_engine: ^6.5.4
+-  flutter_ringtone_player: ^4.0.0+4
+   permission_handler: ^12.0.1
+   url_launcher: ^6.3.2
+   flutter_sound: ^9.30.0
+@@ -58,6 +57,12 @@ dependencies:
+   android_intent_plus: ^6.0.0
+   package_info_plus: ^9.0.1
+ 
++  # Native Android foreground service that owns the incoming-call ringtone
++  # + vibration so they survive independently of the Dart/Flutter engine —
++  # see packages/astro_call_kit/README for why this had to be native.
++  astro_call_kit:
++    path: packages/astro_call_kit
++
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter

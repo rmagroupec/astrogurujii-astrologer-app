@@ -26,10 +26,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // BACKGROUND ISOLATE HANDLER
 // Runs in a SEPARATE Dart isolate — no Flutter widgets, no Navigator.
-// Rules:
+// This isolate is torn down by Android within seconds of this function
+// returning, so:
 //   ✅ persist() the call data to SharedPreferences
 //   ✅ showIncomingCall() — fullscreen notification to wake lock screen
-//   ❌ NEVER play ringtone here — wrong isolate, no audio focus
+//   ✅ hand off to astro_call_kit — it starts a native Android foreground
+//      service that keeps ringing/vibrating long after THIS isolate dies
 //   ❌ NEVER navigate here — no Navigator
 // ─────────────────────────────────────────────────────────────────────────────
 @pragma('vm:entry-point')
@@ -48,19 +50,35 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final data = message.data;
   if (!IncomingCallRouter.isCallData(data)) return;
 
+  final stringData = data.map((k, v) => MapEntry(k, v.toString()));
+  final channelId  = stringData['channel_id'] ?? '';
+  final title      = stringData['title'] ?? 'Incoming Call';
+  final body       = '${stringData['user_name'] ?? 'Someone'} is calling';
+
   // 1. Persist so the main isolate can route when app resumes
-  await IncomingCallRouter.persist(
-      data.map((k, v) => MapEntry(k, v.toString())));
+  await IncomingCallRouter.persist(stringData);
 
   // 2. Show fullscreen notification — wakes lock screen, shows Accept/Reject
   //    We must re-init the plugin in THIS isolate
   await LocalNotificationService.initialize(onNotificationAction);
   await LocalNotificationService.showIncomingCall(
-    title  : data['title']     ?? 'Incoming Call',
-    body   : '${data['user_name'] ?? 'Someone'} is calling',
-    payload: data.map((k, v) => MapEntry(k, v.toString())),
+    title  : title,
+    body   : body,
+    payload: stringData,
   );
-  // NOTE: NO ringtone here — IncomingCallScreen in main isolate handles it
+
+  // 3. Start native ringing — this is what makes the phone actually ring
+  //    while the app is backgrounded or fully killed. astro_call_kit's
+  //    CallRingtoneService keeps running (and ringing) independently of
+  //    this isolate, which Android will tear down moments after this
+  //    function returns.
+  if (channelId.isNotEmpty) {
+    await LocalNotificationService.playRingtone(
+      channelId,
+      title: title,
+      body : body,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

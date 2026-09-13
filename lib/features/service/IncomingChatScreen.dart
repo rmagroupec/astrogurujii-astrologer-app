@@ -9,12 +9,14 @@ class IncomingChatRequestScreen extends StatefulWidget {
   final String userName;
   final String userAvatar;
   final String messagePreview;
+  final String channelId;
 
   const IncomingChatRequestScreen({
     super.key,
     required this.userName,
     required this.userAvatar,
     required this.messagePreview,
+    required this.channelId,
   });
 
   @override
@@ -41,7 +43,11 @@ class _IncomingChatRequestScreenState
     _pulse = Tween<double>(begin: 0.95, end: 1.05).animate(
         CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
 
-    LocalNotificationService.playRingtone();
+    LocalNotificationService.playRingtone(
+      widget.channelId,
+      title: 'Incoming Chat Request',
+      body : '${widget.userName} wants to chat',
+    );
     LocalNotificationService.startVibration();   // ✅ continuous vibration
 
   }

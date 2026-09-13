@@ -1,4 +1,5 @@
 {
     "dart.flutterSdkPath": ".fvm/flutter_sdk",
-    "dart.sdkPath": ".fvm/flutter_sdk/bin/cache/dart-sdk"
+    "dart.sdkPath": ".fvm/flutter_sdk/bin/cache/dart-sdk",
+    "cmake.sourceDirectory": "/Users/apple/Documents/Flutter_Projects/Astrogurujii/Astrogurujii New Deveopment/astrologer_app/linux"
   }

@@ -67,7 +67,7 @@ class AudioCallProvider extends ChangeNotifier {
     try {
       final token = await _getToken();
       await http.post(
-        Uri.parse('https://admin.astrogurujii.com/astrologer_api/call_status_update'),
+        Uri.parse('https://admin.vaidikguru.com/astrologer_api/call_status_update'),
         headers: {
           'Content-Type' : 'application/json',
           'Authorization': 'Bearer $token',

@@ -6,6 +6,7 @@ import 'package:astrologer_app/features/Settings/OfferHistoryScreen.dart';
 import 'package:astrologer_app/features/Settings/OfferScreen.dart';
 import 'package:astrologer_app/features/Settings/SuggestedPujaScreen.dart';
 import 'package:astrologer_app/features/account/AstrologerSideDrawer.dart';
+import 'package:astrologer_app/features/service/AstrologerGistScreen.dart';
 import 'package:astrologer_app/features/account/SupportChatScreen.dart';
 import 'package:astrologer_app/features/account/WalletScreen.dart';
 import 'package:astrologer_app/features/live/LiveEventListScreen.dart';
@@ -36,6 +37,7 @@ class HomeIconGrid extends StatelessWidget {
       {"icon": "phone.svg", "label": "Waitlist","page": Waitlistscreen()},
       {"icon": "chat_assistant.svg", "label": "Assistant","page": SupportChatScreen()},
       {"icon": "puja.svg", "label": "Pooja", "page":PoojaBookingScreen()},
+      {"icon": "puja.svg", "label": "Gifts", "page":AstrologerGiftScreen()},
       {"icon": "offers.svg", "label": "Offers", "page":OffersScreen()},
       {"icon": "review.svg", "label": "Reviews", "page":MyReviewsScreen()},
       {"icon": "wallet2.svg", "label": "Wallet","page": WalletScreen()},

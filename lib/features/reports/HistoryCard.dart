@@ -104,9 +104,11 @@ class _HistoryCardState extends State<HistoryCard> {
         return (label: 'Accepted',   color: const Color(0xFF1565C0), icon: Icons.check_circle_rounded);
       case 'reject_astro':
       case 'end_astro':
+        return (label: 'Completed',   color: const Color(0xFF2E7D32), icon: Icons.check_circle_rounded);
+      case 'reject_user':
         return (label: 'Rejected',   color: const Color(0xFFC62828), icon: Icons.cancel_rounded);
-      case 'disconnect_user':
-        return (label: 'Completed',  color: const Color(0xFF2E7D32), icon: Icons.cancel_rounded);
+      case 'reject_astro':
+        return (label: 'Rejected',   color: const Color(0xFFC62828), icon: Icons.cancel_rounded);
       case 'missed':
         return (label: 'Missed',     color: const Color(0xFFE65100), icon: Icons.phone_missed_rounded);
       default:
@@ -227,6 +229,7 @@ class _HistoryCardState extends State<HistoryCard> {
               final toggling  = _toggling.contains(userId);
               final note      = _notes[channelId]         ?? '';
               final hasNote   = note.isNotEmpty;
+              final durationMin = int.tryParse(item.callMin ?? item.callDuration ?? '') ?? 0;
 
               return _HistoryItem(
                 item        : item,
@@ -239,6 +242,7 @@ class _HistoryCardState extends State<HistoryCard> {
                 isTablet    : isTablet,
                 isFavourite : isFav,
                 isToggling  : toggling,
+                durationMin : durationMin,
                 note        : note,
                 hasNote     : hasNote,
                 onFavTap    : () => _toggleFavourite(userId),
@@ -264,6 +268,7 @@ class _HistoryItem extends StatelessWidget {
   final bool             isTablet;
   final bool             isFavourite;
   final bool             isToggling;
+  final int durationMin;
   final String           note;
   final bool             hasNote;
   final VoidCallback     onFavTap;
@@ -280,6 +285,7 @@ class _HistoryItem extends StatelessWidget {
     required this.isTablet,
     required this.isFavourite,
     required this.isToggling,
+    required this.durationMin, 
     required this.note,
     required this.hasNote,
     required this.onFavTap,
@@ -296,7 +302,10 @@ class _HistoryItem extends StatelessWidget {
     final offerLabel = (item.offer      ?? '').trim();
     final hasOffer   = offerLabel.isNotEmpty;
     final isRepeat   = item.isRepeat    ?? false;
-    final country    = (item.userCountry ?? '').trim();
+final isInr = (item.userCountry ?? '').trim().toUpperCase() == 'INR'; // adjust field name if different
+final country = isInr ? 'India' : (item.userCountry ?? '').trim();
+// in _HistoryCardState.build(), inside itemBuilder, alongside other computed values:
+final durationMin = int.tryParse(item.callMin ?? item.callDuration ?? '') ?? 0;
 
     return Container(
       margin    : const EdgeInsets.only(bottom: 14),
@@ -340,7 +349,11 @@ class _HistoryItem extends StatelessWidget {
                     const SizedBox(width: 5),
                   ],
                   // LOYAL badge
-                  _Chip(label: 'LOYAL', bg: const Color(0xFFFCD417), textColor: Colors.black),
+                  _Chip(
+  label    : durationMin > 15 ? 'Loyal' : 'Normal',
+  bg       : durationMin > 15 ? const Color(0xFFFCD417) : (isDark ? const Color(0xFF2C2C2C) : const Color(0xFFEEEEEE)),
+  textColor: durationMin > 15 ? Colors.black : c.subText,
+),
                   const SizedBox(width: 8),
                   // Status
                   Text(statusMeta.label,

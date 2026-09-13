@@ -31,7 +31,7 @@ class ChatProvider extends ChangeNotifier {
   String get senderId   => _senderId   ?? '';
   String get receiverId => _receiverId ?? '';
 
-  static const String _baseUrl = "https://admin.astrogurujii.com";
+  static const String _baseUrl = "https://admin.vaidikguru.com";
 
   // ── Session identity ────────────────────────────────────────────────────────
   String? _groupId;
@@ -227,13 +227,34 @@ listenCallSession(groupId);
   }
 
   void setTyping(bool isTyping) {
-    if (_groupId == null || _senderId == null) return;
-    _typingDebounce?.cancel();
-    _typingDebounce = Timer(const Duration(milliseconds: 400), () {
-      _chatService.setTyping(
-          groupId: _groupId!, userId: _senderId!, isTyping: isTyping);
-    });
+  if (_groupId == null || _senderId == null) {
+    debugPrint(
+      '❌ setTyping skipped: groupId=$_groupId senderId=$_senderId',
+    );
+    return;
   }
+
+  _typingDebounce?.cancel();
+
+  final groupId = _groupId!;
+  final senderId = _senderId!;
+
+  debugPrint(
+    '⌨️ ChatProvider.setTyping '
+    'groupId=$groupId senderId=$senderId typing=$isTyping',
+  );
+
+  _typingDebounce = Timer(
+    const Duration(milliseconds: 150),
+    () async {
+      await _chatService.setTyping(
+        groupId: groupId,
+        userId: senderId,
+        isTyping: isTyping,
+      );
+    },
+  );
+}
 
   void markMessagesSeen() {
     if (_groupId == null || _senderId == null || _receiverId == null) return;

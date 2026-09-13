@@ -147,67 +147,47 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── API: set chat/voice/video online status ────────────────────────────────
   // Uses profile_status_update with is_chat_online / is_voice_online / is_video_online
  
-  Future<bool> _setOnline(String type, bool on) async {
-    final Map<String, String> body = {};
- 
-    if (on) {
-      // ✅ Turning ON — only this service
-      final field = type == 'chat'  ? 'is_chat_online'
-                  : type == 'voice' ? 'is_voice_online'
-                  :                   'is_video_online';
-      body[field] = 'on';
-    } else {
-      // ✅ Turning OFF — check if all were ON together
-      // If chat+voice+video were ALL on and we're turning one off,
-      // turn ALL off together
-      final allOn = _chatOn && _voiceOn && _videoOn;
- 
-      if (allOn) {
-        // All were on — turn all off
-        body['is_chat_online']  = 'off';
-        body['is_voice_online'] = 'off';
-        body['is_video_online'] = 'off';
-      } else {
-        // Only this service was on — turn just this one off
-        final field = type == 'chat'  ? 'is_chat_online'
-                    : type == 'voice' ? 'is_voice_online'
-                    :                   'is_video_online';
-        body[field] = 'off';
-      }
-    }
- 
-    try {
-      final res = await ApiClient().post(
-        'astrologer_api/profile_status_update',
-        body,
-        isAuthRequired: true,
-      );
-      final resBody = jsonDecode(res.body) as Map<String, dynamic>;
-      final ok      = resBody['status'] == true;
- 
-      // ✅ Update local state to match what we sent
-      if (ok && !on) {
-        final allOn = _chatOn && _voiceOn && _videoOn;
-        if (allOn) {
-          // All turned off
-          setState(() {
-            _chatOn  = false;
-            _voiceOn = false;
-            _videoOn = false;
-            _chatSub  = 'Offline';
-            _voiceSub = 'Offline';
-            _videoSub = 'Offline';
-          });
-          return true; // caller doesn't need to update state again
-        }
-      }
- 
-      return ok;
-    } catch (e) {
-      debugPrint('_setOnline error: $e');
-      return false;
-    }
+ // Replace the whole _setOnline method with this (ON only):
+Future<bool> _setOnline(String type, bool on) async {
+  final field = type == 'chat'  ? 'is_chat_online'
+              : type == 'voice' ? 'is_voice_online'
+              :                   'is_video_online';
+  try {
+    final res = await ApiClient().post(
+      'astrologer_api/profile_status_update',
+      {field: on ? 'on' : 'off'},
+      isAuthRequired: true,
+    );
+    final resBody = jsonDecode(res.body) as Map<String, dynamic>;
+    return resBody['status'] == true;
+  } catch (e) {
+    debugPrint('_setOnline error: $e');
+    return false;
   }
+}
+
+// ✅ New method — turns off exactly the services passed in, nothing else guessed
+Future<bool> _turnOffServices(List<String> types) async {
+  final Map<String, String> body = {};
+  for (final t in types) {
+    final field = t == 'chat'  ? 'is_chat_online'
+                : t == 'voice' ? 'is_voice_online'
+                :                 'is_video_online';
+    body[field] = 'off';
+  }
+  try {
+    final res = await ApiClient().post(
+      'astrologer_api/profile_status_update',
+      body,
+      isAuthRequired: true,
+    );
+    final resBody = jsonDecode(res.body) as Map<String, dynamic>;
+    return resBody['status'] == true;
+  } catch (e) {
+    debugPrint('_turnOffServices error: $e');
+    return false;
+  }
+}
 
   // ── API: emergency toggle ──────────────────────────────────────────────────
   // Uses profile_status_update with is_emergency_chat / is_emergency_call
@@ -605,22 +585,30 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               onNo: () {},
             );
-          } else {
-            setState(() => _chatToggling = true);
-            final ok = await _setOnline('chat', false);
-            setState(() {
-              _chatToggling = false;
-              if (ok) { _chatOn = false; _chatSub = 'Offline'; }
-            });
-            if (ok) {
-              ScheduleNextOnlineModal.show(context,
-                serviceType: 'chat',
-                onScheduled: (dt) => setState(() =>
-                    _chatSub = DateFormat('dd MMM, hh:mm a').format(dt)));
-            } else {
-              _snack('Failed to go offline', error: true);
-            }
-          }
+         } else {
+    // ✅ Ask FIRST — nothing goes offline until this returns a result
+    final result = await ScheduleNextOnlineModal.show(context, serviceType: 'chat');
+    if (result == null) {
+      // User dismissed/cancelled the sheet — stay online, do nothing
+      return;
+    }
+
+    final types = result.sameForAll ? ['chat', 'voice', 'video'] : ['chat'];
+    setState(() => _chatToggling = true);
+    final ok = await _turnOffServices(types);
+    final subLabel = DateFormat('dd MMM, hh:mm a').format(result.scheduledTime);
+
+    setState(() {
+      _chatToggling = false;
+      if (ok) {
+        if (types.contains('chat'))  { _chatOn  = false; _chatSub  = subLabel; }
+        if (types.contains('voice')) { _voiceOn = false; _voiceSub = subLabel; }
+        if (types.contains('video')) { _videoOn = false; _videoSub = subLabel; }
+      }
+    });
+    if (!ok) _snack('Failed to go offline', error: true);
+  }
+        
         },
         onBreak: () => TakeBreakModal.show(context,
             serviceType   : 'chat',
@@ -657,22 +645,25 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               onNo: () {},
             );
-          } else {
-            setState(() => _voiceToggling = true);
-            final ok = await _setOnline('voice', false);
-            setState(() {
-              _voiceToggling = false;
-              if (ok) { _voiceOn = false; _voiceSub = 'Offline'; }
-            });
-            if (ok) {
-              ScheduleNextOnlineModal.show(context,
-                serviceType: 'call',
-                onScheduled: (dt) => setState(() =>
-                    _voiceSub = DateFormat('dd MMM, hh:mm a').format(dt)));
-            } else {
-              _snack('Failed to go offline', error: true);
-            }
-          }
+         } else {
+  final result = await ScheduleNextOnlineModal.show(context, serviceType: 'call');
+  if (result == null) return;
+
+  final types = result.sameForAll ? ['chat', 'voice', 'video'] : ['voice'];
+  setState(() => _voiceToggling = true);
+  final ok = await _turnOffServices(types);
+  final subLabel = DateFormat('dd MMM, hh:mm a').format(result.scheduledTime);
+
+  setState(() {
+    _voiceToggling = false;
+    if (ok) {
+      if (types.contains('chat'))  { _chatOn  = false; _chatSub  = subLabel; }
+      if (types.contains('voice')) { _voiceOn = false; _voiceSub = subLabel; }
+      if (types.contains('video')) { _videoOn = false; _videoSub = subLabel; }
+    }
+  });
+  if (!ok) _snack('Failed to go offline', error: true);
+}
         },
         onBreak: () => TakeBreakModal.show(context,
             serviceType   : 'call',
@@ -709,22 +700,25 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               onNo: () {},
             );
-          } else {
-            setState(() => _videoToggling = true);
-            final ok = await _setOnline('video', false);
-            setState(() {
-              _videoToggling = false;
-              if (ok) { _videoOn = false; _videoSub = 'Offline'; }
-            });
-            if (ok) {
-              ScheduleNextOnlineModal.show(context,
-                serviceType: 'video',
-                onScheduled: (dt) => setState(() =>
-                    _videoSub = DateFormat('dd MMM, hh:mm a').format(dt)));
-            } else {
-              _snack('Failed to go offline', error: true);
-            }
-          }
+         } else {
+  final result = await ScheduleNextOnlineModal.show(context, serviceType: 'video');
+  if (result == null) return;
+
+  final types = result.sameForAll ? ['chat', 'voice', 'video'] : ['video'];
+  setState(() => _videoToggling = true);
+  final ok = await _turnOffServices(types);
+  final subLabel = DateFormat('dd MMM, hh:mm a').format(result.scheduledTime);
+
+  setState(() {
+    _videoToggling = false;
+    if (ok) {
+      if (types.contains('chat'))  { _chatOn  = false; _chatSub  = subLabel; }
+      if (types.contains('voice')) { _voiceOn = false; _voiceSub = subLabel; }
+      if (types.contains('video')) { _videoOn = false; _videoSub = subLabel; }
+    }
+  });
+  if (!ok) _snack('Failed to go offline', error: true);
+}
         },
         onBreak: () => TakeBreakModal.show(context,
             serviceType   : 'video',
@@ -1408,26 +1402,31 @@ class _CeoBanner extends StatelessWidget {
     ),
   );
 }
+// Add above ScheduleNextOnlineModal class
+class ScheduleResult {
+  final DateTime scheduledTime;
+  final bool sameForAll;
+  const ScheduleResult(this.scheduledTime, this.sameForAll);
+}
 
 // =============================================================================
 // WIDGET: Schedule Next Online (bottom sheet) — unchanged
 // =============================================================================
+// Replace the ScheduleNextOnlineModal class header/constructor:
 class ScheduleNextOnlineModal extends StatefulWidget {
   final String serviceType;
-  final ValueChanged<DateTime> onScheduled;
-  const ScheduleNextOnlineModal(
-      {super.key, required this.serviceType, required this.onScheduled});
+  const ScheduleNextOnlineModal({super.key, required this.serviceType});
 
-  static Future<void> show(BuildContext context,
-      {required String serviceType,
-       required ValueChanged<DateTime> onScheduled}) =>
-      showModalBottomSheet(
+  static Future<ScheduleResult?> show(
+    BuildContext context, {
+    required String serviceType,
+  }) =>
+      showModalBottomSheet<ScheduleResult>(
         context           : context,
         isScrollControlled: true,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (_) => ScheduleNextOnlineModal(
-            serviceType: serviceType, onScheduled: onScheduled),
+        builder: (_) => ScheduleNextOnlineModal(serviceType: serviceType),
       );
 
   @override
@@ -1641,29 +1640,30 @@ class _ScheduleNextOnlineModalState extends State<ScheduleNextOnlineModal> {
     }
   }
 
-  Future<void> _submit() async {
-    if (_picked == null) return;
-    setState(() => _busy = true);
-    try {
-      await ApiClient().post(
-        'astrologer_api/schedule_next_online',
-        {
-          'type'          : widget.serviceType,
-          'scheduled_time': _picked!.toIso8601String(),
-          'same_for_all'  : _sameAll,
-        },
-        isAuthRequired: true,
-      );
-      widget.onScheduled(_picked!);
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'),
-              backgroundColor: Colors.red));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+  // Replace _submit() inside _ScheduleNextOnlineModalState:
+Future<void> _submit() async {
+  if (_picked == null) return;
+  setState(() => _busy = true);
+  try {
+    await ApiClient().post(
+      'astrologer_api/schedule_next_online',
+      {
+        'type'          : widget.serviceType,
+        'scheduled_time': _picked!.toIso8601String(),
+        'same_for_all'  : _sameAll,
+      },
+      isAuthRequired: true,
+    );
+    if (mounted) {
+      Navigator.pop(context, ScheduleResult(_picked!, _sameAll)); // ✅ return the choice
     }
+  } catch (e) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red));
+  } finally {
+    if (mounted) setState(() => _busy = false);
   }
+}
 }
 
 class _P {

@@ -21,7 +21,7 @@
         tools:node="remove"/>
 
     <application
-        android:label="Astrogurujii Astrologer"
+        android:label="Vaidikguru Astrologer"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

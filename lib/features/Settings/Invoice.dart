@@ -62,7 +62,7 @@ class InvoiceItem {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class InvoiceService {
-  static const String _baseUrl = 'https://admin.astrogurujii.com/';
+  static const String _baseUrl = 'https://admin.vaidikguru.com/';
   final _storage = const FlutterSecureStorage();
 
   Future<String?> _token() => _storage.read(key: 'auth_token');

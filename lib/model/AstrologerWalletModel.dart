@@ -35,49 +35,50 @@ class WalletData {
   final String percentage;
   final String tds;
   final String payableAmount;
-  final String lifetimeEarning;
-  final String pendingEarning;
-  final String weeklyEarning;
-  final String rank;
   final String todayAvailableBalance;
   final String todayPayableAmount;
   final String todayAstromallAvailableBalance;
   final String todayAstromallPayableAmount;
-  final String note;
+  final double adminDeductedBoostAllTime;
+  final double adminDeductedNormalAllTime;
+  final double todayAdminDeducted;
+  final double todayAdminDeductedBoost;
+  final double todayEmergencyEarnings;
+  final double todayNormalEarnings;
 
   WalletData({
     required this.myWallet,
     required this.percentage,
     required this.tds,
     required this.payableAmount,
-    required this.lifetimeEarning,
-    required this.pendingEarning,
-    required this.weeklyEarning,
-    required this.rank,
     required this.todayAvailableBalance,
     required this.todayPayableAmount,
     required this.todayAstromallAvailableBalance,
     required this.todayAstromallPayableAmount,
-    required this.note,
+    required this.adminDeductedBoostAllTime,
+    required this.adminDeductedNormalAllTime,
+    required this.todayAdminDeducted,
+    required this.todayAdminDeductedBoost,
+    required this.todayEmergencyEarnings,
+    required this.todayNormalEarnings,
   });
 
-  factory WalletData.fromJson(Map<String, dynamic> json) {
-    return WalletData(
-      myWallet:                       json['my_wallet']?.toString()                    ?? '0',
-      percentage:                     json['percentage']?.toString()                   ?? '0',
-      tds:                            json['tds']?.toString()                          ?? '0',
-      payableAmount:                  json['payable_amount']?.toString()               ?? '0',
-      lifetimeEarning:                json['lifetime_earning']?.toString()             ?? '0',
-      pendingEarning:                 json['pending_earning']?.toString()              ?? '0',
-      weeklyEarning:                  json['weekly_earning']?.toString()               ?? '0',
-      rank:                           json['rank']?.toString()                         ?? '0',
-      todayAvailableBalance:          json['today_available_balance']?.toString()      ?? '0',
-      todayPayableAmount:             json['today_payable_amount']?.toString()         ?? '0',
-      todayAstromallAvailableBalance: json['today_astromall_available_balance']?.toString() ?? '0',
-      todayAstromallPayableAmount:    json['today_astromall_payable_amount']?.toString()    ?? '0',
-      note:                           json['note']?.toString()                         ?? '',
-    );
-  }
+  factory WalletData.fromJson(Map<String, dynamic> json) => WalletData(
+    myWallet     : json['my_wallet']?.toString()     ?? '0',
+    percentage   : json['percentage']?.toString()    ?? '0',
+    tds          : json['tds']?.toString()           ?? '0',
+    payableAmount: json['payable_amount']?.toString() ?? '0',
+    todayAvailableBalance          : json['today_available_balance']?.toString()           ?? '0',
+    todayPayableAmount             : json['today_payable_amount']?.toString()               ?? '0',
+    todayAstromallAvailableBalance : json['today_astromall_available_balance']?.toString()  ?? '0',
+    todayAstromallPayableAmount    : json['today_astromall_payable_amount']?.toString()      ?? '0',
+    adminDeductedBoostAllTime : double.tryParse(json['admin_deducted_boost_all_time']?.toString()  ?? '0') ?? 0,
+    adminDeductedNormalAllTime: double.tryParse(json['admin_deducted_normal_all_time']?.toString() ?? '0') ?? 0,
+    todayAdminDeducted        : double.tryParse(json['today_admin_deducted']?.toString()        ?? '0') ?? 0,
+    todayAdminDeductedBoost   : double.tryParse(json['today_admin_deducted_boost']?.toString()  ?? '0') ?? 0,
+    todayEmergencyEarnings    : double.tryParse(json['today_emergency_earnings']?.toString()    ?? '0') ?? 0,
+    todayNormalEarnings       : double.tryParse(json['today_normal_earnings']?.toString()       ?? '0') ?? 0,
+  );
 }
 
 class OnlineStatus {

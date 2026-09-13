@@ -146,23 +146,10 @@ void didChangeDependencies() {
     await provider.end();
     if (!mounted) return;
 
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-
-    await showModalBottomSheet(
-      context           : context,
-      isDismissible     : false,
-      enableDrag        : false,
-      isScrollControlled: true,
-      backgroundColor   : Colors.transparent,
-      builder           : (_) => _RatingSheet(
-        callerName : widget.callerName,
-        callerImage: widget.callerImage,
-        duration   : provider.duration,
-        onDone: (_) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        },
-      ),
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => MainNavScreen()),
+      (route) => false,
     );
   }
 

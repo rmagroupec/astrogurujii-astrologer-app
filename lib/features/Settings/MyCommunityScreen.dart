@@ -82,7 +82,7 @@ class CommunityUser {
 // ─── API Service ─────────────────────────────────────────────────────────────
 
 class CommunityApiService {
-  static const String _base = 'https://admin.astrogurujii.com/astrologer_api';
+  static const String _base = 'https://admin.vaidikguru.com/astrologer_api';
    static  ApiClient _client = ApiClient();
 
  
@@ -95,6 +95,7 @@ class CommunityApiService {
     
     final resp = await _client.post(
      'astrologer_api/community_followers',{'search': search},
+     isAuthRequired: true,
     );
     final data = jsonDecode(resp.body);
     if (data['result'] == true) {
@@ -110,6 +111,8 @@ class CommunityApiService {
     
     final resp = await _client.post(
     'astrologer_api/community_favourites',{'search': search},
+          isAuthRequired: true, // ✅
+
     );
     final data = jsonDecode(resp.body);
     if (data['result'] == true) {
@@ -124,6 +127,8 @@ class CommunityApiService {
    
     final resp= await _client.post(
     'astrologer_api/community_toggle_favourite',{'user_id': userId},
+          isAuthRequired: true, // ✅
+
     );
     final data = jsonDecode(resp.body);
     if (data['result'] == true) return data['is_favourite'] as bool?;

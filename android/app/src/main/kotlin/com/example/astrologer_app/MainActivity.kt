@@ -1,4 +1,4 @@
-package com.astrologer.astro.astrogurujiii
+package com.astrologer.vaidikguru
 import android.app.KeyguardManager
 import android.content.Intent
 import android.net.Uri

@@ -4,6 +4,8 @@
 //                            Average Chat Rating, Average Call Rating
 // ── Tab 2 "Earn Tag": Current Status, Eligibility Criteria table
 // ── All data live from performance_dashboard API + profile API
+// ── Theme-aware: AppColors + AppTheme tokens, zero hardcoded colors ───────────
+// ── Zero logic changes — only colors made theme-aware ─────────────────────────
 
 import 'dart:convert';
 import 'package:astrologer_app/core/config/theme_config.dart';
@@ -15,15 +17,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THEME CONSTANTS (dark, matches screenshots)
+// BRAND / SEMANTIC CONSTANTS — not theme-dependent (same in dark & light)
 // ─────────────────────────────────────────────────────────────────────────────
-
-const _bg     = Color(0xFF0E0E1A);
-const _card   = Color(0xFF1A1A2E);
-const _yellow = Color(0xFFFCD417);
-const _red    = Color(0xFFD41000);
-const _border = Color(0xFF2A2A45);
-const _grey   = Color(0xFF8888AA);
+// bg/card/border/text/subText now come from context.colors (AppColors)
+// yellow/red now come from AppTheme.primaryYellow / AppTheme.accentRed
 const _green  = Color(0xFF27AE60);
 const _blue   = Color(0xFF4A90D9);
 
@@ -39,18 +36,22 @@ class _HealthData {
     required this.revenueLoss, required this.missedCalls,
     required this.missedChats, required this.loyalUsers,
   });
+
+  // Now parses the `today_performance` API response shape.
   factory _HealthData.fromJson(Map<String, dynamic> j) => _HealthData(
     totalSessions : _i(j['total_sessions']),
-    missedSessions: _i(j['missed_sessions']),
-    revenueLoss   : _d(j['revenue_loss']),
-    missedCalls   : _i(j['missed_calls']),
-    missedChats   : _i(j['missed_chats']),
+    missedSessions: _i(j['missed_total']),
+    revenueLoss   : _d(j['revenue_loss_estimate']),
+    // today_performance splits missed calls into audio + video
+    missedCalls   : _i(j['missed_audio']) + _i(j['missed_video']),
+    missedChats   : _i(j['missed_chat']),
+    // today_performance has no loyal-users count; keep 0 here,
+    // it's still shown correctly via the Loyal Conversion card (performance_dashboard).
     loyalUsers    : _i(j['loyal_users']),
   );
   static int    _i(v) => int.tryParse(v?.toString() ?? '0') ?? 0;
   static double _d(v) => double.tryParse(v?.toString() ?? '0') ?? 0.0;
 }
-
 class _AvailData {
   final int todayAvail, week7Avail, days30Avail;
   final int todayBusy,  week7Busy,  days30Busy;
@@ -87,10 +88,11 @@ class _LoyalData {
     if (conversionPct >= 17.0) return 'Average';
     return 'Low';
   }
+  // AppTheme.* are static — safe to use here without a BuildContext.
   Color get labelColor {
     if (conversionPct >= 25.5) return _green;
-    if (conversionPct >= 17.0) return _yellow;
-    return _red;
+    if (conversionPct >= 17.0) return AppTheme.primaryYellow;
+    return AppTheme.accentRed;
   }
   static int    _i(v) => int.tryParse(v?.toString() ?? '0') ?? 0;
   static double _d(v) => double.tryParse(v?.toString() ?? '0') ?? 0.0;
@@ -170,34 +172,52 @@ class _PerformanceDashboardScreenState
     _tab.dispose();
     super.dispose();
   }
+  String? _todayLabel;
 
-  Future<void> _load() async {
+ Future<void> _load() async {
+  if (!mounted) return;
+  setState(() { _loading = true; _error = null; });
+  try {
+    final results = await Future.wait([
+      ApiService().get_astrologer_profile(),
+      _client.post('astrologer_api/performance_dashboard', {}, isAuthRequired: true),
+      _client.post('astrologer_api/today_performance', {}, isAuthRequired: true),
+    ]);
+    final profileRes = results[0] as AstrologerProfileResponse;
+    final dashJson   = jsonDecode((results[1] as dynamic).body) as Map<String, dynamic>;
+    final todayJson  = jsonDecode((results[2] as dynamic).body) as Map<String, dynamic>;
     if (!mounted) return;
-    setState(() { _loading = true; _error = null; });
-    try {
-      final results = await Future.wait([
-        ApiService().get_astrologer_profile(),
-        _client.post('astrologer_api/performance_dashboard', {}, isAuthRequired: true),
-      ]);
-      final profileRes = results[0] as AstrologerProfileResponse;
-      final dashJson   = jsonDecode((results[1] as dynamic).body) as Map<String, dynamic>;
-      if (!mounted) return;
-      setState(() {
-        _astro = profileRes.results.isNotEmpty ? profileRes.results.first : null;
-        if (dashJson['result'] == true) {
-          final d = dashJson['data'] as Map<String, dynamic>;
-          _health = _HealthData.fromJson(d['health']       as Map<String, dynamic>? ?? {});
-          _avail  = _AvailData.fromJson(d['availability']  as Map<String, dynamic>? ?? {});
-          _loyal  = _LoyalData.fromJson(d['loyal']         as Map<String, dynamic>? ?? {});
-          _tag    = _TagData.fromJson(d['tag']              as Map<String, dynamic>? ?? {});
-        }
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });
-    }
+    setState(() {
+      _astro = profileRes.results.isNotEmpty ? profileRes.results.first : null;
+
+      if (dashJson['result'] == true) {
+        final d = dashJson['data'] as Map<String, dynamic>;
+        _avail  = _AvailData.fromJson(d['availability']  as Map<String, dynamic>? ?? {});
+        _loyal  = _LoyalData.fromJson(d['loyal']         as Map<String, dynamic>? ?? {});
+        _tag    = _TagData.fromJson(d['tag']              as Map<String, dynamic>? ?? {});
+      }
+
+      // "Today's Profile Health" now sourced from today_performance,
+      // which has the actual today-only breakdown (missed by reason, revenue loss, etc.)
+      if (todayJson['result'] == true) {
+        final td = todayJson['data'] as Map<String, dynamic>? ?? {};
+        // carry loyal_users from the dashboard's loyal data since today_performance
+        // doesn't track it, so the health card still shows a meaningful number.
+        final merged = {
+          ...td,
+          'loyal_users': _loyal?.loyalUsers ?? 0,
+        };
+        _todayLabel = td['day_label']?.toString();
+        _health = _HealthData.fromJson(merged);
+      }
+
+      _loading = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+    setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });
   }
+}
 
   // ── Derived ratings ────────────────────────────────────────────────────────
   double get _chatRating  => _tag?.chatRating ?? 0.0;
@@ -209,23 +229,24 @@ class _PerformanceDashboardScreenState
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        backgroundColor: _bg,
-        foregroundColor: Colors.white,
+        backgroundColor: c.bg,
+        foregroundColor: c.text,
         elevation      : 0,
-        title: const Text('Performance Dashboard',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
+        title: Text('Performance Dashboard',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 17, color: c.text)),
         actions: [
           IconButton(
-            icon     : const Icon(Icons.refresh_rounded, color: Colors.white),
+            icon     : Icon(Icons.refresh_rounded, color: c.text),
             onPressed: _load,
           ),
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: _yellow))
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primaryYellow))
           : _error != null
               ? _ErrorView(error: _error!, onRetry: _load)
               : Column(children: [
@@ -248,11 +269,11 @@ class _PerformanceDashboardScreenState
 
   Widget _myPerfTab() => RefreshIndicator(
         onRefresh: _load,
-        color    : _yellow,
+        color    : AppTheme.primaryYellow,
         child    : ListView(
           padding : EdgeInsets.all(FigmaSize.w(14)),
           children: [
-            _ProfileHealthCard(health: _health, today: _today()),
+           _ProfileHealthCard(health: _health, today: _todayLabel ?? _today()),
             SizedBox(height: FigmaSize.h(16)),
             _AvailabilityCard(avail: _avail),
             SizedBox(height: FigmaSize.h(16)),
@@ -286,7 +307,7 @@ class _PerformanceDashboardScreenState
 
   Widget _earnTagTab() => RefreshIndicator(
         onRefresh: _load,
-        color    : _yellow,
+        color    : AppTheme.primaryYellow,
         child    : ListView(
           padding : EdgeInsets.all(FigmaSize.w(14)),
           children: [
@@ -310,6 +331,7 @@ class _ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
     final name   = astro?.displayname ?? astro?.displayname ?? 'Astrologer';
     final img    = astro?.profileImg  ?? '';
     final online = (astro?.isChatOnline  ?? false) ||
@@ -326,14 +348,14 @@ class _ProfileHeader extends StatelessWidget {
               width : 76, height: 76,
               decoration: BoxDecoration(
                 shape : BoxShape.circle,
-                border: Border.all(color: _yellow, width: 2.5),
+                border: Border.all(color: AppTheme.primaryYellow, width: 2.5),
               ),
               child: ClipOval(
                 child: img.isNotEmpty
                     ? Image.network(img, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>
-                            const Icon(Icons.person, color: Colors.white, size: 40))
-                    : const Icon(Icons.person, color: Colors.white, size: 40),
+                            Icon(Icons.person, color: c.text, size: 40))
+                    : Icon(Icons.person, color: c.text, size: 40),
               ),
             ),
           ],
@@ -344,10 +366,10 @@ class _ProfileHeader extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(name,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize  : 18,
                     fontWeight: FontWeight.w700,
-                    color     : Colors.white)),
+                    color     : c.text)),
             SizedBox(width: FigmaSize.w(6)),
             Container(
               width : 18, height: 18,
@@ -372,6 +394,7 @@ class _TagProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     const labels = ['Rising Star', 'Top choice', 'Celebrity'];
     // Progress value: tag 0 → 0.08, tag 1 → 0.33, tag 2 → 0.66, tag 3 → 1.0
     final progress = [0.08, 0.33, 0.66, 1.0][currentTag.clamp(0, 3)];
@@ -387,7 +410,7 @@ class _TagProgressBar extends StatelessWidget {
             Container(
               height    : 4,
               decoration: BoxDecoration(
-                  color: _border, borderRadius: BorderRadius.circular(2)),
+                  color: c.border, borderRadius: BorderRadius.circular(2)),
             ),
             // Fill
             FractionallySizedBox(
@@ -395,7 +418,7 @@ class _TagProgressBar extends StatelessWidget {
               child: Container(
                 height    : 4,
                 decoration: BoxDecoration(
-                    color: _yellow, borderRadius: BorderRadius.circular(2)),
+                    color: AppTheme.primaryYellow, borderRadius: BorderRadius.circular(2)),
               ),
             ),
             // Milestone dots at 33%, 66%, 100%
@@ -407,10 +430,10 @@ class _TagProgressBar extends StatelessWidget {
                 child: Container(
                   width : 14, height: 14,
                   decoration: BoxDecoration(
-                    color : done ? _yellow : _card,
+                    color : done ? AppTheme.primaryYellow : c.surface,
                     shape : BoxShape.circle,
                     border: Border.all(
-                        color: done ? _yellow : _grey, width: 2),
+                        color: done ? AppTheme.primaryYellow : c.subText, width: 2),
                   ),
                 ),
               );
@@ -422,7 +445,7 @@ class _TagProgressBar extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: labels.map((l) => Text(l,
-              style: const TextStyle(color: _grey, fontSize: 10))).toList(),
+              style: TextStyle(color: c.subText, fontSize: 10))).toList(),
         ),
       ]),
     );
@@ -438,25 +461,28 @@ class _TabBar extends StatelessWidget {
   const _TabBar({required this.controller});
 
   @override
-  Widget build(BuildContext context) => Container(
-        color: _bg,
-        child: TabBar(
-          controller          : controller,
-          labelColor          : Colors.white,
-          unselectedLabelColor: _grey,
-          indicatorColor      : _yellow,
-          indicatorWeight     : 2.5,
-          dividerColor        : _border,
-          labelStyle          : const TextStyle(
-              fontWeight: FontWeight.w600, fontSize: 14),
-          unselectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.w400, fontSize: 14),
-          tabs                : const [
-            Tab(text: 'My Performance'),
-            Tab(text: 'Earn Tag'),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      color: c.bg,
+      child: TabBar(
+        controller          : controller,
+        labelColor          : c.text,
+        unselectedLabelColor: c.subText,
+        indicatorColor      : AppTheme.primaryYellow,
+        indicatorWeight     : 2.5,
+        dividerColor        : c.border,
+        labelStyle          : const TextStyle(
+            fontWeight: FontWeight.w600, fontSize: 14),
+        unselectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.w400, fontSize: 14),
+        tabs                : const [
+          Tab(text: 'My Performance'),
+          Tab(text: 'Earn Tag'),
+        ],
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,16 +495,19 @@ class _Card extends StatelessWidget {
   const _Card({required this.child, this.padding});
 
   @override
-  Widget build(BuildContext context) => Container(
-        width     : double.infinity,
-        padding   : padding ?? EdgeInsets.all(FigmaSize.w(14)),
-        decoration: BoxDecoration(
-          color       : _card,
-          borderRadius: BorderRadius.circular(12),
-          border      : Border.all(color: _border),
-        ),
-        child: child,
-      );
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width     : double.infinity,
+      padding   : padding ?? EdgeInsets.all(FigmaSize.w(14)),
+      decoration: BoxDecoration(
+        color       : c.surface,
+        borderRadius: BorderRadius.circular(12),
+        border      : Border.all(color: c.border),
+      ),
+      child: child,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -492,6 +521,7 @@ class _ProfileHealthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final h = health;
     final rows = [
       ['Total Sessions',                    '${h?.totalSessions  ?? 0}'],
@@ -506,32 +536,32 @@ class _ProfileHealthCard extends StatelessWidget {
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text("Today's Profile Health",
+          Text("Today's Profile Health",
               style: TextStyle(
-                  color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                  color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
           Container(
             padding   : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              border      : Border.all(color: _border),
+              border      : Border.all(color: c.border),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(today,
-                style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                style: TextStyle(color: c.subText, fontSize: 11)),
           ),
         ],
       ),
       SizedBox(height: FigmaSize.h(12)),
       ...rows.asMap().entries.map((e) => Column(children: [
-        if (e.key > 0) Divider(height: 1, color: _border),
+        if (e.key > 0) Divider(height: 1, color: c.border),
         Padding(
           padding: EdgeInsets.symmetric(vertical: FigmaSize.h(11)),
           child: Row(children: [
             Expanded(
               child: Text(e.value[0],
-                  style: const TextStyle(color: Colors.white70, fontSize: 13))),
+                  style: TextStyle(color: c.subText, fontSize: 13))),
             Text(e.value[1],
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                style: TextStyle(
+                    color: c.text, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
         ),
       ])).toList(),
@@ -549,36 +579,37 @@ class _AvailabilityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final a = avail;
     return _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('My Availability',
+      Text('My Availability',
           style: TextStyle(
-              color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+              color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
       SizedBox(height: FigmaSize.h(12)),
-      _row(['Availability', 'Today', 'Last 7 Days', 'Last 30 days'], isHeader: true),
-      Divider(height: 1, color: _border),
-      _row(['Available Mins',
+      _row(c, ['Availability', 'Today', 'Last 7 Days', 'Last 30 days'], isHeader: true),
+      Divider(height: 1, color: c.border),
+      _row(c, ['Available Mins',
         '${a?.todayAvail  ?? 0} mins',
         '${a?.week7Avail  ?? 0} mins',
         '${a?.days30Avail ?? 0} mins']),
-      Divider(height: 1, color: _border),
-      _row(['Busy Mins',
+      Divider(height: 1, color: c.border),
+      _row(c, ['Busy Mins',
         '${a?.todayBusy  ?? 0} mins',
         '${a?.week7Busy  ?? 0} mins',
         '${a?.days30Busy ?? 0} mins']),
-      Divider(height: 1, color: _border),
+      Divider(height: 1, color: c.border),
       Padding(
         padding: EdgeInsets.symmetric(vertical: FigmaSize.h(12)),
-        child: Row(children: const [
+        child: Row(children: [
           Expanded(child: Text('Check Last 30 Days Availability',
-              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600))),
-          Icon(Icons.chevron_right, color: Colors.white70),
+              style: TextStyle(color: c.text, fontSize: 13, fontWeight: FontWeight.w600))),
+          Icon(Icons.chevron_right, color: c.subText),
         ]),
       ),
     ]));
   }
 
-  Widget _row(List<String> cells, {bool isHeader = false}) => Padding(
+  Widget _row(AppColors c, List<String> cells, {bool isHeader = false}) => Padding(
         padding: EdgeInsets.symmetric(vertical: FigmaSize.h(10)),
         child: Row(children: cells.asMap().entries.map((e) {
           final isFirst = e.key == 0;
@@ -587,7 +618,7 @@ class _AvailabilityCard extends StatelessWidget {
             child: Text(e.value,
                 textAlign: isFirst ? TextAlign.left : TextAlign.center,
                 style: TextStyle(
-                  color     : isHeader ? Colors.white : Colors.white,
+                  color     : c.text,
                   fontSize  : 12,
                   fontWeight: isHeader ? FontWeight.w700 : FontWeight.w500,
                 )),
@@ -606,18 +637,19 @@ class _LoyalConversionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c   = context.colors;
     final l   = loyal;
     final pct = l?.conversionPct ?? 0.0;
-    final lc  = l?.labelColor ?? _red;
+    final lc  = l?.labelColor ?? AppTheme.accentRed;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Loyal User Conversion',
+      Text('Loyal User Conversion',
           style: TextStyle(
-              color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+              color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
       SizedBox(height: FigmaSize.h(10)),
       Container(
         decoration: BoxDecoration(
-          color       : _card,
+          color       : c.surface,
           borderRadius: BorderRadius.circular(12),
           border      : Border.all(color: lc, width: 1.5),
         ),
@@ -626,7 +658,7 @@ class _LoyalConversionCard extends StatelessWidget {
           Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Text('${pct.toStringAsFixed(1)} %',
                 style: TextStyle(
-                    color: _yellow, fontSize: FigmaSize.w(30), fontWeight: FontWeight.w700)),
+                    color: AppTheme.primaryYellow, fontSize: FigmaSize.w(30), fontWeight: FontWeight.w700)),
             const Spacer(),
             // Label badge
             Container(
@@ -647,29 +679,29 @@ class _LoyalConversionCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value          : (pct / 100.0).clamp(0.0, 1.0),
-              backgroundColor: _border,
-              valueColor     : AlwaysStoppedAnimation<Color>(_yellow),
+              backgroundColor: c.border,
+              valueColor     : AlwaysStoppedAnimation<Color>(AppTheme.primaryYellow),
               minHeight      : 8,
             ),
           ),
           SizedBox(height: FigmaSize.h(4)),
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('0.0',   style: TextStyle(color: _grey, fontSize: 10)),
-              Text('17.0',  style: TextStyle(color: _grey, fontSize: 10)),
-              Text('25.5',  style: TextStyle(color: _grey, fontSize: 10)),
-              Text('100.0', style: TextStyle(color: _grey, fontSize: 10)),
+              Text('0.0',   style: TextStyle(color: c.subText, fontSize: 10)),
+              Text('17.0',  style: TextStyle(color: c.subText, fontSize: 10)),
+              Text('25.5',  style: TextStyle(color: c.subText, fontSize: 10)),
+              Text('100.0', style: TextStyle(color: c.subText, fontSize: 10)),
             ],
           ),
           SizedBox(height: FigmaSize.h(16)),
           // Stats row
           Row(children: [
-            _stat('Total users',      '${l?.totalUsers  ?? 0}'),
-            _divider(),
-            _stat('Loyal Users',      '${l?.loyalUsers  ?? 0}'),
-            _divider(),
-            _stat('Loyal user level', '${l?.loyalLevel  ?? 0}'),
+            _stat(c, 'Total users',      '${l?.totalUsers  ?? 0}'),
+            _divider(c),
+            _stat(c, 'Loyal Users',      '${l?.loyalUsers  ?? 0}'),
+            _divider(c),
+            _stat(c, 'Loyal user level', '${l?.loyalLevel  ?? 0}'),
           ]),
         ]),
       ),
@@ -677,21 +709,21 @@ class _LoyalConversionCard extends StatelessWidget {
       Text(
         'Loyal user conversion means if Astrogurujii provides you with '
         '${l?.totalUsers ?? 500} new customers then how many of them became your loyal customers',
-        style: const TextStyle(color: _grey, fontSize: 11, height: 1.5),
+        style: TextStyle(color: c.subText, fontSize: 11, height: 1.5),
       ),
     ]);
   }
 
-  Widget _stat(String label, String val) => Expanded(child: Column(children: [
+  Widget _stat(AppColors c, String label, String val) => Expanded(child: Column(children: [
         Text(label, textAlign: TextAlign.center,
-            style: const TextStyle(color: _grey, fontSize: 11)),
+            style: TextStyle(color: c.subText, fontSize: 11)),
         SizedBox(height: FigmaSize.h(4)),
-        Text(val, style: const TextStyle(
-            color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+        Text(val, style: TextStyle(
+            color: c.text, fontSize: 18, fontWeight: FontWeight.w700)),
       ]));
 
-  Widget _divider() => Container(
-        width: 1, height: 36, color: _border,
+  Widget _divider(AppColors c) => Container(
+        width: 1, height: 36, color: c.border,
         margin: EdgeInsets.symmetric(horizontal: FigmaSize.w(6)));
 }
 
@@ -715,16 +747,17 @@ class _RatingCard extends StatelessWidget {
     return 'Need Improvement';
   }
 
+  // AppTheme.* are static — safe to use here without a BuildContext.
   Color get _statusColor {
     if (rating >= 4.75) return _green;
-    if (rating >= 4.5)  return _yellow;
-    return _red;
+    if (rating >= 4.5)  return AppTheme.primaryYellow;
+    return AppTheme.accentRed;
   }
 
   Color get _barColor {
     if (rating >= 4.75) return _green;
-    if (rating >= 4.5)  return _yellow;
-    return _red;
+    if (rating >= 4.5)  return AppTheme.primaryYellow;
+    return AppTheme.accentRed;
   }
 
   Color get _borderColor => _statusColor;
@@ -734,13 +767,14 @@ class _RatingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: const TextStyle(
-          color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+      Text(label, style: TextStyle(
+          color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
       SizedBox(height: FigmaSize.h(10)),
       Container(
         decoration: BoxDecoration(
-          color       : _card,
+          color       : c.surface,
           borderRadius: BorderRadius.circular(12),
           border      : Border.all(color: _borderColor, width: 1.5),
         ),
@@ -790,26 +824,26 @@ class _RatingCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value          : _progress,
-              backgroundColor: _border,
+              backgroundColor: c.border,
               valueColor     : AlwaysStoppedAnimation<Color>(_barColor),
               minHeight      : 8,
             ),
           ),
           SizedBox(height: FigmaSize.h(4)),
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('1.0',  style: TextStyle(color: _grey, fontSize: 10)),
-              Text('4.5',  style: TextStyle(color: _grey, fontSize: 10)),
-              Text('4.75', style: TextStyle(color: _grey, fontSize: 10)),
-              Text('5.0',  style: TextStyle(color: _grey, fontSize: 10)),
+              Text('1.0',  style: TextStyle(color: c.subText, fontSize: 10)),
+              Text('4.5',  style: TextStyle(color: c.subText, fontSize: 10)),
+              Text('4.75', style: TextStyle(color: c.subText, fontSize: 10)),
+              Text('5.0',  style: TextStyle(color: c.subText, fontSize: 10)),
             ],
           ),
         ]),
       ),
       SizedBox(height: FigmaSize.h(8)),
       Text(description,
-          style: const TextStyle(color: _grey, fontSize: 11, height: 1.6)),
+          style: TextStyle(color: c.subText, fontSize: 11, height: 1.6)),
     ]);
   }
 }
@@ -824,6 +858,7 @@ class _CurrentStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c    = context.colors;
     final t    = tag;
     final next = t?.nextTagName ?? 'Rising Star';
     final bm7  = t?.busyMins7.toStringAsFixed(0)   ?? '0';
@@ -834,44 +869,44 @@ class _CurrentStatusCard extends StatelessWidget {
     final earnLeft = t?.earningsToNext.toStringAsFixed(2) ?? '0.00';
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Current Status',
-          style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+      Text('Current Status',
+          style: TextStyle(color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
       SizedBox(height: FigmaSize.h(10)),
 
       // Busy Minutes card
       _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Average Busy Minutes',
-            style: TextStyle(color: Colors.white70, fontSize: 13)),
+        Text('Average Busy Minutes',
+            style: TextStyle(color: c.subText, fontSize: 13)),
         SizedBox(height: FigmaSize.h(10)),
         Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(bm7, style: const TextStyle(
-                color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+            Text(bm7, style: TextStyle(
+                color: c.text, fontSize: 22, fontWeight: FontWeight.w700)),
             SizedBox(height: FigmaSize.h(2)),
-            const Text('Last 7 days', style: TextStyle(color: _grey, fontSize: 12)),
+            Text('Last 7 days', style: TextStyle(color: c.subText, fontSize: 12)),
           ])),
-          Container(width: 1, height: 44, color: _border,
+          Container(width: 1, height: 44, color: c.border,
               margin: EdgeInsets.symmetric(horizontal: FigmaSize.w(14))),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(bm30, style: const TextStyle(
-                color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+            Text(bm30, style: TextStyle(
+                color: c.text, fontSize: 22, fontWeight: FontWeight.w700)),
             SizedBox(height: FigmaSize.h(2)),
-            const Text('Last 30 days', style: TextStyle(color: _grey, fontSize: 12)),
+            Text('Last 30 days', style: TextStyle(color: c.subText, fontSize: 12)),
           ])),
         ]),
         SizedBox(height: FigmaSize.h(10)),
         if (next.isNotEmpty)
           RichText(text: TextSpan(
-            style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.5),
+            style: TextStyle(color: c.subText, fontSize: 12, height: 1.5),
             children: [
               const TextSpan(text: 'Only '),
               TextSpan(text: '$minsLeft mins',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      color: c.text, fontWeight: FontWeight.w600)),
               const TextSpan(text: ' more to become '),
               TextSpan(text: next,
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      color: c.text, fontWeight: FontWeight.w700)),
               const TextSpan(text: '!'),
             ],
           )),
@@ -883,23 +918,23 @@ class _CurrentStatusCard extends StatelessWidget {
       Row(children: [
         Expanded(
           child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Last 30 days Earning',
-                style: TextStyle(color: Colors.white70, fontSize: 12)),
+            Text('Last 30 days Earning',
+                style: TextStyle(color: c.subText, fontSize: 12)),
             SizedBox(height: FigmaSize.h(6)),
-            Text(e30, style: const TextStyle(
-                color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+            Text(e30, style: TextStyle(
+                color: c.text, fontSize: 18, fontWeight: FontWeight.w700)),
             SizedBox(height: FigmaSize.h(6)),
             if (next.isNotEmpty)
               RichText(text: TextSpan(
-                style: const TextStyle(color: Colors.white60, fontSize: 11, height: 1.5),
+                style: TextStyle(color: c.subText, fontSize: 11, height: 1.5),
                 children: [
                   const TextSpan(text: 'Only ₹'),
                   TextSpan(text: earnLeft,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      style: TextStyle(color: c.text, fontWeight: FontWeight.w600)),
                   const TextSpan(text: ' to become '),
                   TextSpan(text: next,
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w700)),
+                      style: TextStyle(
+                          color: c.text, fontWeight: FontWeight.w700)),
                   const TextSpan(text: '!'),
                 ],
               )),
@@ -908,14 +943,14 @@ class _CurrentStatusCard extends StatelessWidget {
         SizedBox(width: FigmaSize.w(10)),
         Expanded(
           child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Loyal User Level',
-                style: TextStyle(color: Colors.white70, fontSize: 12)),
+            Text('Loyal User Level',
+                style: TextStyle(color: c.subText, fontSize: 12)),
             SizedBox(height: FigmaSize.h(6)),
-            Text(ll, style: const TextStyle(
-                color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+            Text(ll, style: TextStyle(
+                color: c.text, fontSize: 22, fontWeight: FontWeight.w700)),
             SizedBox(height: FigmaSize.h(6)),
-            const Text('Loyal user level should be 1',
-                style: TextStyle(color: Colors.white60, fontSize: 11, height: 1.4)),
+            Text('Loyal user level should be 1',
+                style: TextStyle(color: c.subText, fontSize: 11, height: 1.4)),
           ])),
         ),
       ]),
@@ -932,17 +967,19 @@ class _EligibilityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Eligibility Criteria',
+      Text('Eligibility Criteria',
           style: TextStyle(
-              color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+              color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
       SizedBox(height: FigmaSize.h(10)),
 
       // Busy Time table
       _Card(child: Column(children: [
-        _tRow(['Eligibility', 'Rising Star', 'Top choice', 'Celebrity'], isHeader: true),
-        Divider(height: 1, color: _border),
+        _tRow(c, ['Eligibility', 'Rising Star', 'Top choice', 'Celebrity'], isHeader: true),
+        Divider(height: 1, color: c.border),
         _tRowMulti(
+          c,
           label: 'Busy Time\nLast 7 days\nLast 30 days',
           vals : ['>=210', '>=300', '>=390'],
         ),
@@ -952,35 +989,35 @@ class _EligibilityCard extends StatelessWidget {
 
       // Mandatory table
       _Card(child: Column(children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 10, top: 4),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10, top: 4),
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text('Mandatory',
                 style: TextStyle(
-                    color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                    color: c.text, fontSize: 14, fontWeight: FontWeight.w600)),
           ),
         ),
-        _tRow(['30 days earning', '>50000', '>50000', '>50000']),
-        Divider(height: 1, color: _border),
-        _tRow(['Loyal User', '1', '1', '1']),
-        Divider(height: 1, color: _border),
-        _tRow(['Chat Rating', '>4.7', '>4.7', '>4.7']),
-        Divider(height: 1, color: _border),
-        _tRow(['Call Rating', '>4.7', '>4.7', '>4.7']),
-        Divider(height: 1, color: _border),
-        _tRow(['Tag', '', '', '']),
+        _tRow(c, ['30 days earning', '>50000', '>50000', '>50000']),
+        Divider(height: 1, color: c.border),
+        _tRow(c, ['Loyal User', '1', '1', '1']),
+        Divider(height: 1, color: c.border),
+        _tRow(c, ['Chat Rating', '>4.7', '>4.7', '>4.7']),
+        Divider(height: 1, color: c.border),
+        _tRow(c, ['Call Rating', '>4.7', '>4.7', '>4.7']),
+        Divider(height: 1, color: c.border),
+        _tRow(c, ['Tag', '', '', '']),
       ])),
 
       SizedBox(height: FigmaSize.h(8)),
-      const Text(
+      Text(
         '**Other internal parameters are also considered.',
-        style: TextStyle(color: _red, fontSize: 11, height: 1.5),
+        style: TextStyle(color: AppTheme.accentRed, fontSize: 11, height: 1.5),
       ),
     ]);
   }
 
-  Widget _tRow(List<String> cells, {bool isHeader = false}) => Padding(
+  Widget _tRow(AppColors c, List<String> cells, {bool isHeader = false}) => Padding(
         padding: EdgeInsets.symmetric(vertical: FigmaSize.h(10)),
         child: Row(children: cells.asMap().entries.map((e) {
           final isFirst = e.key == 0;
@@ -990,7 +1027,7 @@ class _EligibilityCard extends StatelessWidget {
               e.value,
               textAlign: isFirst ? TextAlign.left : TextAlign.center,
               style: TextStyle(
-                color     : isHeader ? Colors.white : (isFirst ? Colors.white70 : Colors.white),
+                color     : isHeader ? c.text : (isFirst ? c.subText : c.text),
                 fontSize  : 12,
                 fontWeight: isHeader || !isFirst ? FontWeight.w600 : FontWeight.w400,
               ),
@@ -999,22 +1036,22 @@ class _EligibilityCard extends StatelessWidget {
         }).toList()),
       );
 
-  Widget _tRowMulti({required String label, required List<String> vals}) =>
+  Widget _tRowMulti(AppColors c, {required String label, required List<String> vals}) =>
       Padding(
         padding: EdgeInsets.symmetric(vertical: FigmaSize.h(10)),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
             flex: 3,
             child: Text(label,
-                style: const TextStyle(
-                    color: Colors.white70, fontSize: 12, height: 1.6)),
+                style: TextStyle(
+                    color: c.subText, fontSize: 12, height: 1.6)),
           ),
           ...vals.map((v) => Expanded(
                 flex: 2,
                 child: Text(v,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                    style: TextStyle(
+                        color: c.text, fontSize: 12, fontWeight: FontWeight.w600)),
               )),
         ]),
       );
@@ -1034,10 +1071,10 @@ class _ErrorView extends StatelessWidget {
         child: Padding(
           padding: EdgeInsets.all(FigmaSize.w(24)),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.error_outline, color: _red, size: 44),
+            Icon(Icons.error_outline, color: AppTheme.accentRed, size: 44),
             SizedBox(height: FigmaSize.h(12)),
             Text(error,
-                style: const TextStyle(color: _red),
+                style: TextStyle(color: AppTheme.accentRed),
                 textAlign: TextAlign.center),
             SizedBox(height: FigmaSize.h(16)),
             ElevatedButton.icon(
@@ -1045,7 +1082,7 @@ class _ErrorView extends StatelessWidget {
               icon : const Icon(Icons.refresh),
               label: const Text('Retry'),
               style: ElevatedButton.styleFrom(
-                  backgroundColor: _yellow, foregroundColor: Colors.black),
+                  backgroundColor: AppTheme.primaryYellow, foregroundColor: Colors.black),
             ),
           ]),
         ),

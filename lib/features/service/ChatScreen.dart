@@ -230,31 +230,9 @@ class _ChatScreenState extends State<ChatScreen> {
       await context.read<ChatProvider>().endChatApi(widget.channelId);
     }
     if (!mounted) return;
-    await _showRatingSheet(reason: reason);
-  }
-
-  Future<void> _showRatingSheet({required String reason}) async {
-    final p = context.read<ChatProvider>();
-    await showModalBottomSheet(
-      context            : context,
-      isDismissible      : false,
-      enableDrag         : false,
-      isScrollControlled : true,
-      backgroundColor    : Colors.transparent,
-      builder: (_) => _ChatRatingSheet(
-        userName   : widget.userName,
-        userAvatar : widget.userAvatar,
-        sessionTime: p.sessionDuration,
-        endReason  : reason,
-        channelId  : widget.channelId,
-        onDone     : () {
-          Navigator.pop(context);
-            
-        Navigator.push(context,
-                      MaterialPageRoute(
-                          builder: (_) =>  MainNavScreen()));
-        },
-      ),
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => MainNavScreen()),
     );
   }
 
@@ -750,6 +728,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         }
                         context.read<ChatProvider>().sendTextMessage(text);
                         _ctrl.clear();
+
+context.read<ChatProvider>().setTyping(false);
                       },
                     ),
             ),

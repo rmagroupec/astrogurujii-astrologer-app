@@ -82,20 +82,75 @@ class ChatService {
     });
   }
 
-  void setTyping({
-    required String groupId,
-    required String userId,
-    required bool isTyping,
-  }) {
-    FirebaseDatabase.instance.ref("Typing/$groupId/$userId").set(isTyping);
+  // ─────────────────────────────────────────────────────────────
+// TYPING
+// Uses the SAME Firebase Realtime Database as chat messages.
+// ─────────────────────────────────────────────────────────────
+
+static const String _dbUrl =
+    "https://astrogurujii-production-default-rtdb.firebaseio.com/";
+
+FirebaseDatabase get _database => FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: _dbUrl,
+    );
+
+Future<void> setTyping({
+  required String groupId,
+  required String userId,
+  required bool isTyping,
+}) async {
+  if (groupId.trim().isEmpty || userId.trim().isEmpty) {
+    debugPrint(
+      "❌ setTyping skipped: groupId=$groupId userId=$userId",
+    );
+    return;
   }
 
-  Stream<bool> typingStream({required String groupId, required String userId}) {
-    return FirebaseDatabase.instance
-        .ref("Typing/$groupId/$userId")
-        .onValue
-        .map((event) => event.snapshot.value == true);
+  final path = "Typing/$groupId/$userId";
+
+  try {
+    debugPrint(
+      "⌨️ TYPING WRITE → $path = $isTyping",
+    );
+
+    await _database.ref().child(path).set(isTyping);
+
+    debugPrint(
+      "✅ TYPING WRITE SUCCESS → $path = $isTyping",
+    );
+  } catch (e, stack) {
+    debugPrint(
+      "❌ TYPING WRITE FAILED → $path = $e",
+    );
+    debugPrint("$stack");
   }
+}
+
+Stream<bool> typingStream({
+  required String groupId,
+  required String userId,
+}) {
+  final path = "Typing/$groupId/$userId";
+
+  debugPrint(
+    "👂 TYPING LISTEN → $path",
+  );
+
+  return _database
+      .ref()
+      .child(path)
+      .onValue
+      .map((event) {
+        final value = event.snapshot.value;
+
+        debugPrint(
+          "👂 TYPING EVENT → $path = $value",
+        );
+
+        return value == true;
+      });
+}
 
   Future<void> updateSeenStatus({required String path}) async {
     await FirebaseDatabase.instance.ref(path).update({"seen": true});

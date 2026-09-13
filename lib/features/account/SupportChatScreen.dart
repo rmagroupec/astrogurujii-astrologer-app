@@ -70,7 +70,7 @@ class SupportMessage {
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 class _SupportService {
-  static const String _base = 'https://admin.astrogurujii.com/';
+  static const String _base = 'https://admin.vaidikguru.com/';
   final _storage = const FlutterSecureStorage();
 
   Future<Map<String, String>> _headers() async {

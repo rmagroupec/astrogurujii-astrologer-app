@@ -20,7 +20,7 @@ typedef OnCallEnded = void Function(String reason);
 
 class VideoCallProvider extends ChangeNotifier {
   static const _appId   = '8782e154141a4c0bbc8acaa3004d21f2';
-  static const _baseUrl = 'https://admin.astrogurujii.com';
+  static const _baseUrl = 'https://admin.vaidikguru.com';
   final _storage        = const FlutterSecureStorage();
 
   RtcEngine? _engine;

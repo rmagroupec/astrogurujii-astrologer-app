@@ -6,6 +6,9 @@ import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:astrologer_app/features/reports/HistoryCard.dart';
 import 'package:flutter/material.dart';
 
+import 'package:astrologer_app/features/reports/HistoryCard.dart';
+import 'package:astrologer_app/features/service/AstrologerGistScreen.dart';// ← adjust path to match where you saved it
+import 'package:flutter/material.dart';
 class MainReportsScreen extends StatefulWidget {
   final String page;
   const MainReportsScreen({super.key, required this.page});
@@ -22,7 +25,7 @@ class _MainReportsScreenState extends State<MainReportsScreen>
     _TabMeta(key: 'chat',      label: 'Chat',      icon: Icons.chat_bubble_outline_rounded),
     _TabMeta(key: 'audio',     label: 'Call',       icon: Icons.phone_outlined),
     _TabMeta(key: 'video',     label: 'Video Call', icon: Icons.videocam_outlined),
-    _TabMeta(key: 'Astromall', label: 'Astromall',  icon: Icons.store_mall_directory_outlined),
+    _TabMeta(key: 'Gift', label: 'Gift', icon: Icons.card_giftcard_outlined),
   ];
 
   int _initialIndex() {
@@ -111,11 +114,14 @@ class _MainReportsScreenState extends State<MainReportsScreen>
           ),
         ),
       ),
-      body: TabBarView(
+                 body: TabBarView(
         controller: _tabController,
-        children: _tabs
-            .map((t) => HistoryCard(page: t.key))
-            .toList(),
+        children: _tabs.map((t) {
+          if (t.key == 'Gift') {
+            return const AstrologerGiftScreen(showAppBar: false);
+          }
+          return HistoryCard(page: t.key);
+        }).toList(),
       ),
     );
   }

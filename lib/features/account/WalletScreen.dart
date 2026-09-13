@@ -19,28 +19,73 @@ class _WalletScreenState extends State<WalletScreen> {
   OnlineStatus?           onlineStatus;
   List<WalletTransaction> transactions = [];
 
+  // ── Filter state ─────────────────────────────────────────────────
+  String     _selectedType = 'all'; // all | chat | audio | video | other
+  DateTime?  _fromDate;
+  DateTime?  _toDate;
+
+  static const _typeOptions = <String, String>{
+    'all'  : 'All',
+    'chat' : 'Chat',
+    'audio': 'Voice',
+    'video': 'Video',
+    'other': 'Others',
+  };
+
   @override
   void initState() {
     super.initState();
     _loadData();
   }
 
+  String? _fmt(DateTime? d) => d == null
+      ? null
+      : '${d.year.toString().padLeft(4,'0')}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+
   Future<void> _loadData() async {
     setState(() => isLoading = true);
     try {
       final walletResp = await ApiService().GetAstrologerWallet();
-      final txResp     = await ApiService().GetAstrologerWalletTransaction(); // ✅
+      final txResp     = await ApiService().GetAstrologerWalletTransaction(
+        type    : _selectedType,
+        fromDate: _fmt(_fromDate),
+        toDate  : _fmt(_toDate),
+      );
 
       setState(() {
         data         = walletResp.data;
         onlineStatus = walletResp.onlineStatus;
-        transactions = txResp.results; // ✅ TransactionListResponse1.results
+        transactions = txResp.results;
         isLoading    = false;
       });
     } catch (e) {
       debugPrint('WalletScreen error: $e');
       setState(() => isLoading = false);
     }
+  }
+
+  Future<void> _pickDateRange() async {
+    final now   = DateTime.now();
+    final range = await showDateRangePicker(
+      context     : context,
+      firstDate   : DateTime(now.year - 2),
+      lastDate    : now,
+      initialDateRange: (_fromDate != null && _toDate != null)
+          ? DateTimeRange(start: _fromDate!, end: _toDate!)
+          : null,
+    );
+    if (range != null) {
+      setState(() {
+        _fromDate = range.start;
+        _toDate   = range.end;
+      });
+      _loadData();
+    }
+  }
+
+  void _clearDateRange() {
+    setState(() { _fromDate = null; _toDate = null; });
+    _loadData();
   }
 
   void _showBreakup() {
@@ -108,7 +153,12 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
 
                   SizedBox(height: FigmaSize.h(12)),
-
+                  if ((data?.todayAdminDeductedBoost ?? 0) > 0 || (data?.todayEmergencyEarnings ?? 0) > 0)
+  Padding(
+    padding: EdgeInsets.only(top: FigmaSize.h(12)),
+    child: _BoostEmergencyCard(data: data!, c: c, isDark: isDark),
+  ),
+ SizedBox(height: FigmaSize.h(12)),
                   if (onlineStatus != null)
                     _OnlineStatusCard(status: onlineStatus!, c: c, isDark: isDark),
 
@@ -132,20 +182,83 @@ class _WalletScreenState extends State<WalletScreen> {
 
                   SizedBox(height: FigmaSize.h(20)),
 
-                  Text(
-                    'Recent Transactions',
-                    style: TextStyle(fontSize: FigmaSize.w(16), fontWeight: FontWeight.bold, color: c.text),
+                                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Recent Transactions',
+                        style: TextStyle(fontSize: FigmaSize.w(16), fontWeight: FontWeight.bold, color: c.text),
+                      ),
+                      GestureDetector(
+                        onTap: _pickDateRange,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.calendar_today_outlined, size: 16, color: c.subText),
+                            SizedBox(width: FigmaSize.w(4)),
+                            Text(
+                              (_fromDate != null && _toDate != null)
+                                  ? '${_fmt(_fromDate)} – ${_fmt(_toDate)}'
+                                  : 'Filter by date',
+                              style: TextStyle(fontSize: FigmaSize.w(12), color: c.subText),
+                            ),
+                            if (_fromDate != null) ...[
+                              SizedBox(width: FigmaSize.w(4)),
+                              GestureDetector(
+                                onTap: _clearDateRange,
+                                child: Icon(Icons.close, size: 14, color: c.subText),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: FigmaSize.h(8)),
+                  SizedBox(height: FigmaSize.h(10)),
+
+                  // ── Type filter chips ────────────────────────────────
+                  SizedBox(
+                    height: FigmaSize.h(36),
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: _typeOptions.entries.map((e) {
+                        final selected = _selectedType == e.key;
+                        return Padding(
+                          padding: EdgeInsets.only(right: FigmaSize.w(8)),
+                          child: ChoiceChip(
+                            label: Text(e.value, style: TextStyle(
+                              fontSize  : FigmaSize.w(12),
+                              fontWeight: FontWeight.w600,
+                              color     : selected ? Colors.black : c.text,
+                            )),
+                            selected       : selected,
+                            selectedColor  : AppTheme.primaryYellow,
+                            backgroundColor: c.surface,
+                            side: BorderSide(color: selected ? AppTheme.primaryYellow : c.divider),
+                            onSelected: (_) {
+                              setState(() => _selectedType = e.key);
+                              _loadData();
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+
+                  SizedBox(height: FigmaSize.h(12)),
                   Divider(color: c.divider),
                   SizedBox(height: FigmaSize.h(8)),
 
-                  if (transactions.isEmpty)
+                                   if (transactions.isEmpty)
                     Center(
                       child: Padding(
                         padding: EdgeInsets.symmetric(vertical: FigmaSize.h(24)),
-                        child: Text('No Transactions Available',
-                            style: TextStyle(color: c.subText, fontWeight: FontWeight.w500)),
+                        child: Text(
+                          (_selectedType != 'all' || _fromDate != null)
+                              ? 'No transactions match this filter'
+                              : 'No Transactions Available',
+                          style: TextStyle(color: c.subText, fontWeight: FontWeight.w500),
+                        ),
                       ),
                     )
                   else
@@ -505,6 +618,76 @@ class _EarningCard extends StatelessWidget {
   );
 }
 
+class _BoostEmergencyCard extends StatelessWidget {
+  final WalletData data;
+  final AppColors  c;
+  final bool       isDark;
+  const _BoostEmergencyCard({required this.data, required this.c, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.all(FigmaSize.w(14)),
+    decoration: BoxDecoration(
+      color : AppTheme.primaryYellow.withOpacity(isDark ? 0.12 : 0.10),
+      border: Border.all(color: isDark ? AppTheme.primaryYellow.withOpacity(0.40) : Colors.amber),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Boost & Emergency Impact (Today)',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: FigmaSize.w(13), color: c.text)),
+        SizedBox(height: FigmaSize.h(10)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _MiniStat(
+              label: 'From Emergency Calls',
+              value: '₹ ${data.todayEmergencyEarnings.toStringAsFixed(2)}',
+              c: c,
+            ),
+            _MiniStat(
+              label: 'Extra Admin Cut (Boost)',
+              value: '₹ ${data.todayAdminDeductedBoost.toStringAsFixed(2)}',
+              c: c,
+              valueColor: AppTheme.accentRed,
+            ),
+          ],
+        ),
+        SizedBox(height: FigmaSize.h(6)),
+        Text(
+          'Boost increases the platform\'s commission share on your active '
+          'boosted service (chat/call/video) but never changes what your '
+          'client pays. Emergency mode doubles your rate for clients — you '
+          'earn more per minute while it\'s active.',
+          style: TextStyle(fontSize: FigmaSize.w(11), color: c.subText, height: 1.4),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MiniStat extends StatelessWidget {
+  final String label, value;
+  final AppColors c;
+  final Color? valueColor;
+  const _MiniStat({required this.label, required this.value, required this.c, this.valueColor});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: FigmaSize.w(10), color: c.subText)),
+        SizedBox(height: FigmaSize.h(4)),
+        Text(value, style: TextStyle(
+          fontSize: FigmaSize.w(13), fontWeight: FontWeight.bold,
+          color: valueColor ?? c.text,
+        )),
+      ],
+    ),
+  );
+}
 // ─────────────────────────────────────────────────────────────────
 // TDS CARD
 // ─────────────────────────────────────────────────────────────────

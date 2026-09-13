@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:astrologer_app/core/config/theme_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -27,7 +28,7 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
   final _storage = const FlutterSecureStorage();
   final _picker  = ImagePicker();
 
-  static const String _baseUrl = 'https://admin.astrogurujii.com/';
+  static const String _baseUrl = 'https://admin.vaidikguru.com/';
 
   @override
   void dispose() {
@@ -41,8 +42,10 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
 
   // ── Image picker bottom sheet ──────────────────────────────────────────────
   Future<void> _pickFile() async {
+    final c = context.colors;
     showModalBottomSheet(
       context: context,
+      backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -51,8 +54,8 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Take Photo'),
+              leading: Icon(Icons.camera_alt, color: c.text),
+              title: Text('Take Photo', style: TextStyle(color: c.text)),
               onTap: () async {
                 Navigator.pop(context);
                 final picked = await _picker.pickImage(
@@ -63,8 +66,8 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from Gallery'),
+              leading: Icon(Icons.photo_library, color: c.text),
+              title: Text('Choose from Gallery', style: TextStyle(color: c.text)),
               onTap: () async {
                 Navigator.pop(context);
                 final picked = await _picker.pickImage(
@@ -144,7 +147,7 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: success ? Colors.green : Colors.red,
+        backgroundColor: success ? Colors.green : AppTheme.accentRed,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -156,12 +159,14 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c      = context.colors;
+    final isDark = context.isDark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: c.bg,
       appBar: AppBar(
-        title: Text("Enter Bank Details"),
-        backgroundColor: Color(0xFFFCD417).withOpacity(0.25),
-        foregroundColor: Colors.black,
+        // Colors inherited from AppTheme automatically
+        title: const Text("Enter Bank Details"),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -170,23 +175,28 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
           children: [
             _textField("Enter Account Number *",
                 controller: _accountNoCtrl,
+                c: c,
                 keyboardType: TextInputType.number),
             _textField("Re-enter Account Number *",
                 controller: _reAccountNoCtrl,
+                c: c,
                 keyboardType: TextInputType.number),
             _textField("Enter Bank Name *",
-                controller: _bankNameCtrl),
+                controller: _bankNameCtrl,
+                c: c),
             _textField("Account Holder Name *",
-                controller: _accountHolderCtrl),
+                controller: _accountHolderCtrl,
+                c: c),
             _textField("Enter IFSC Code *",
                 controller: _ifscCtrl,
+                c: c,
                 textCapitalization: TextCapitalization.characters),
 
             const SizedBox(height: 24),
 
-            const Text(
+            Text(
               "Bank Account proof (Cancel Cheque / Pass Book) *",
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: c.text),
             ),
 
             const SizedBox(height: 12),
@@ -198,7 +208,8 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
                 height: 120,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
+                  color: c.surface,
+                  border: Border.all(color: c.border),
                   borderRadius: BorderRadius.circular(5),
                 ),
                 child: _proofFile != null
@@ -215,8 +226,8 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
                             child: GestureDetector(
                               onTap: () => setState(() => _proofFile = null),
                               child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Colors.red,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.accentRed,
                                   shape: BoxShape.circle,
                                 ),
                                 padding: const EdgeInsets.all(4),
@@ -231,13 +242,13 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
                         child: OutlinedButton(
                           onPressed: _pickFile,
                           style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Colors.red),
+                            side: BorderSide(color: AppTheme.accentRed),
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 24, vertical: 10),
                           ),
-                          child: const Text(
+                          child: Text(
                             "Choose File",
-                            style: TextStyle(color: Colors.red),
+                            style: TextStyle(color: AppTheme.accentRed),
                           ),
                         ),
                       ),
@@ -252,7 +263,7 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFD600),
+                  backgroundColor: AppTheme.primaryYellow,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(30),
                   ),
@@ -283,6 +294,7 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
 
   Widget _textField(
     String hint, {
+    required AppColors c,
     TextEditingController? controller,
     TextInputType keyboardType = TextInputType.text,
     TextCapitalization textCapitalization = TextCapitalization.none,
@@ -293,14 +305,15 @@ class _ChangeBankDetailsScreenState extends State<ChangeBankDetailsScreen> {
         controller: controller,
         keyboardType: keyboardType,
         textCapitalization: textCapitalization,
+        style: TextStyle(color: c.text),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: TextStyle(color: Colors.grey.shade400),
+          hintStyle: TextStyle(color: c.subText),
           enabledBorder: UnderlineInputBorder(
-            borderSide: BorderSide(color: Colors.grey.shade300),
+            borderSide: BorderSide(color: c.border),
           ),
-          focusedBorder: const UnderlineInputBorder(
-            borderSide: BorderSide(color: Colors.black),
+          focusedBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: c.text),
           ),
         ),
       ),

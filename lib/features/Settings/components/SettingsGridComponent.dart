@@ -30,11 +30,11 @@ class SettingsIconGrid extends StatelessWidget {
         'label': 'Update Phone Number',
         'page' : const Updatephonenumber(),
       },
-      {
-        'icon' : 'contact-book.svg',
-        'label': 'Imp. Contacts to Saved',
-        'page' : const ImportantNumberPage(),
-      },
+      // {
+      //   'icon' : 'contact-book.svg',
+      //   'label': 'Imp. Contacts to Saved',
+      //   'page' : const ImportantNumberPage(),
+      // },
       {
         'icon' : 'videos.svg',
         'label': 'Training Videos',
@@ -55,11 +55,11 @@ class SettingsIconGrid extends StatelessWidget {
         'label': 'Price Change Request',
         'page' : const Pricechangerequest(),
       },
-      {
-        'icon' : 'price-tag.svg',
-        'label': 'Download Form 16A',
-        'page' : const Downloadform16a(),
-      },
+      // {
+      //   'icon' : 'price-tag.svg',
+      //   'label': 'Download Form 16A',
+      //   'page' : const Downloadform16a(),
+      // },
       {
         'icon' : 'download-file.svg',
         'label': 'Pay Slip',

@@ -129,18 +129,10 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   void _showEndFlow({required String reason}) {
     if (_endShown || !mounted) return;
     _endShown = true;
-    // Show rating / end sheet (same as before)
-    showModalBottomSheet(
-      context     : context,
-      isDismissible: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _EndSheet(
-        userName  : widget.userName,
-        userAvatar: widget.userAvatar,
-        duration  : context.read<VideoCallProvider>().duration,
-        onDone    : () => Navigator.of(context).popUntil((r) => r.isFirst),
-      ),
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => MainNavScreen()),
+      (route) => false,
     );
   }
 

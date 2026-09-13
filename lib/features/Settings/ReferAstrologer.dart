@@ -20,7 +20,7 @@ class Referastrologer extends StatefulWidget {
 
 class _ReferastrologerState extends State<Referastrologer> {
   static const String _playStoreUrl =
-      'https://play.google.com/store/apps/details?id=com.astrologer.astro.astrogurujiii';
+      'https://play.google.com/store/apps/details?id=com.astrologer.vaidikguru';
     static const String _playStoreUrl1 = "https://play.google.com/store/apps/details?id=com.user.astrogurujii&hl=en_IN";
   String _referralCode = '...';
   bool   _loading      = true;

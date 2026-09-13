@@ -35,7 +35,7 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           navigatorKey              : NavigationManager().navigatorKey,
           debugShowCheckedModeBanner: false,
-          title                     : 'Astrogurujii Astrologer',
+          title                     : 'Vaidikguru Astrologer',
           theme                     : AppTheme.lightTheme,
           darkTheme                 : AppTheme.darkTheme,
           themeMode                 : themeProvider.themeMode,

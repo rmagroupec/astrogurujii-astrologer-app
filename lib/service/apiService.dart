@@ -4,6 +4,7 @@ import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
 import 'package:astrologer_app/features/service/model/NotificationModel.dart';
 import 'package:astrologer_app/model/AstrolgerTransactionsModel.dart';
 import 'package:astrologer_app/model/AstrologerGalleryModel.dart';
+import 'package:astrologer_app/model/AstrologerGiftModel.dart';
 import 'package:astrologer_app/model/AstrologerLiveEventsListModel.dart';
 import 'package:astrologer_app/model/AstrologerWalletModel.dart';
 import 'package:astrologer_app/model/BankAccountRequestModel.dart';
@@ -316,7 +317,16 @@ Future<String> TermsAndCondition(dynamic data) async {
     return response.body;
   }
   
+  Future<AstrologerGiftResponse> AstrologerGiftList() async {
+    final response = await _client.post(
+      "astrologer_api/astrolger_gifts",
+      {},
 
+      isAuthRequired: true,
+    );
+    print(response.body);
+    return AstrologerGiftResponse.fromJson(jsonDecode(response.body));
+  }
 
 Future<LastCallListModel?> lastCallList() async {
   try {
@@ -332,22 +342,23 @@ Future<LastCallListModel?> lastCallList() async {
   }
 }
 // Change the return type from List<WalletTransaction> to model.TransactionListResponse1
-Future<model.TransactionListResponse1> GetAstrologerWalletTransaction() async {
-  try {
-    final response = await _client.post(
-      "astrologer_api/astrologer_wallet_transaction",
-      {},
-      isAuthRequired: true,
-    );
+Future<TransactionListResponse1> GetAstrologerWalletTransaction({
+  String? type,
+  String? fromDate,
+  String? toDate,
+}) async {
+  final body = <String, dynamic>{};
+  if (type != null && type.isNotEmpty && type != 'all') body['type'] = type;
+  if (fromDate != null && fromDate.isNotEmpty) body['from_date'] = fromDate;
+  if (toDate   != null && toDate.isNotEmpty)   body['to_date']   = toDate;
 
-    print(response.body);
-
-    return model.TransactionListResponse1.fromJson(jsonDecode(response.body));
-  } catch (e) {
-    debugPrint("Wallet transaction error: $e");
-    rethrow;
-  }
-
+  final resp = await ApiClient().post(
+    'astrologer_api/astrologer_wallet_transaction',
+    body,
+    isAuthRequired: true,
+  );
+  final json = jsonDecode(resp.body);
+  return TransactionListResponse1.fromJson(json);
 }
 Future<bool> updateReviewAction({
   required String reviewId,

@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiClient {
-  static const String baseUrl = "https://admin.astrogurujii.com/";
+  static const String baseUrl = "https://admin.vaidikguru.com/";
   final _storage = const FlutterSecureStorage();
 
   Future<Map<String, String>> _getHeaders({bool isAuthRequired = true}) async {

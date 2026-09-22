@@ -1282,11 +1282,11 @@ class _ProgressCard extends StatelessWidget {
                 // RIGHT — donut ring
                 SizedBox(
                   width : FigmaSize.w(110),
-                  height: FigmaSize.h(110),
+                  height: FigmaSize.w(110), // ✅ was FigmaSize.h(110) — mismatched scale made this an oval, not a circle
                   child : Stack(alignment: Alignment.center, children: [
                     SizedBox(
                       width : FigmaSize.w(110),
-                      height: FigmaSize.h(110),
+                      height: FigmaSize.w(110), // ✅ same fix — must match width exactly for a true circle
                       child : CircularProgressIndicator(
                         value          : perf.progress,
                         strokeWidth    : 9,

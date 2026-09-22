@@ -1,6 +1,7 @@
 package com.astrologer.vaidikguru.astrocallkit
 
 import android.content.Context
+import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -38,18 +39,22 @@ class AstroCallKitPlugin : FlutterPlugin, MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "startRinging" -> {
+                // channelId / notifId / title / body are accepted (so the
+                // Dart API stays unchanged) but no longer used: ringing no
+                // longer involves a service or a notification of its own,
+                // so there is nothing to label or to attach to. They're
+                // logged because they're useful when reading a logcat.
                 val channelId = call.argument<String>("channelId") ?: ""
-                val notifId = call.argument<Int>("notifId") ?: -1
-                val title = call.argument<String>("title") ?: "Incoming Call"
-                val body = call.argument<String>("body") ?: "is calling"
-                CallRingtoneService.start(appContext, channelId, notifId, title, body)
+                Log.d("AstroCallKit", "startRinging(channelId=$channelId)")
+                RingtonePlayer.start(appContext)
                 result.success(null)
             }
             "stopRinging" -> {
-                CallRingtoneService.stop(appContext)
+                Log.d("AstroCallKit", "stopRinging()")
+                RingtonePlayer.stop()
                 result.success(null)
             }
-            "isRinging" -> result.success(CallRingtoneService.isRinging)
+            "isRinging" -> result.success(RingtonePlayer.isRinging)
             else -> result.notImplemented()
         }
     }

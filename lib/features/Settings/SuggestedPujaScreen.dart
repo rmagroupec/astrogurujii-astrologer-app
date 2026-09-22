@@ -3,6 +3,7 @@
 // ── Zero logic changes ────────────────────────────────────────────────────────
 
 import 'package:astrologer_app/core/config/theme_config.dart';
+import 'package:astrologer_app/features/live/PujaLiveScreen.dart';
 import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
 import 'package:astrologer_app/service/apiService.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,10 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
   bool               isLoading = true;
   bool               isError   = false;
   List<PoojaBooking> bookings  = [];
+
+  /// Booking id currently being started — drives the button spinner and
+  /// blocks double taps (starting twice would issue two Agora tokens).
+  String?            _startingLiveFor;
 
   @override
   void initState() {
@@ -38,18 +43,57 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
     setState(() => isLoading = false);
   }
 
+  // ── Start live ─────────────────────────────────────────────────────────────
+  // Previously this called PoojaStartLive(booking.pujaBookingId) — the wrong
+  // id (puja_booking_id is the readable booking code, not the Mongo _id that
+  // the server looks up) — against the wrong endpoint, and then showed
+  // "Pooja started successfully" unconditionally. Nothing streamed and any
+  // real server message ("Puja starts in 40 minutes", "payment pending") was
+  // swallowed. Now: correct id, real response, and it opens the broadcast.
   Future<void> startLivePooja(PoojaBooking booking) async {
+    if (_startingLiveFor != null) return;      // guard double-taps
+    setState(() => _startingLiveFor = booking.id);
+
     try {
-      await ApiService().PoojaStartLive(booking.pujaBookingId.toString());
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pooja started successfully')),
+      final res = await ApiService().PoojaStartLive(booking.id);
+
+      if (!mounted) return;
+
+      if (!res.canJoin) {
+        // Server said no (wrong day, too early, payment pending, …) — show
+        // exactly why instead of a generic failure.
+        _snack(res.message.isNotEmpty
+            ? res.message
+            : 'Could not start the puja live');
+        return;
+      }
+
+      final ended = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => PujaLiveScreen(
+            pujaId   : booking.id,
+            pujaTitle: booking.pujaType.isNotEmpty
+                ? booking.pujaType
+                : (booking.pujaId?.title ?? 'Puja'),
+            session  : res,
+          ),
+        ),
       );
-      fetchPoojaBookings();
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to start pooja')),
-      );
+
+      if (!mounted) return;
+      if (ended == true) _snack('Puja live ended');
+      fetchPoojaBookings();                     // refresh is_live state
+    } catch (e) {
+      if (mounted) _snack('Failed to start puja live: $e');
+    } finally {
+      if (mounted) setState(() => _startingLiveFor = null);
     }
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+    );
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -123,6 +167,7 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
           booking       : bookings[i],
           c             : c,
           isDark        : context.isDark,
+          isStarting    : _startingLiveFor == bookings[i].id,
           onStartLive   : () => startLivePooja(bookings[i]),
         ),
       ),
@@ -137,19 +182,22 @@ class _BookingCard extends StatelessWidget {
   final PoojaBooking booking;
   final AppColors    c;
   final bool         isDark;
+  final bool         isStarting;
   final VoidCallback onStartLive;
 
   const _BookingCard({
     required this.booking,
     required this.c,
     required this.isDark,
+    required this.isStarting,
     required this.onStartLive,
   });
 
   @override
   Widget build(BuildContext context) {
     final b            = booking;
-    final canStartLive = b.paymentStatus == 'Success' && b.isLive == false;
+    final isPaid       = b.paymentStatus == 'Success';
+    final canStartLive = isPaid && b.isLive == false;
 
     return Container(
       margin : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -239,26 +287,40 @@ class _BookingCard extends StatelessWidget {
           const SizedBox(height: 14),
 
           // ── Action ────────────────────────────────────────────────
-          if (canStartLive)
+          if (canStartLive || (isPaid && b.isLive))
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryYellow,
-                  foregroundColor: Colors.black,
+                  // Already live → green "Rejoin", otherwise the normal CTA.
+                  backgroundColor: b.isLive
+                      ? Colors.green
+                      : AppTheme.primaryYellow,
+                  foregroundColor: b.isLive ? Colors.white : Colors.black,
                   elevation      : 0,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
-                onPressed: onStartLive,
-                child: const Text(
-                  'Start Live',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                // Disabled while a start request is in flight.
+                onPressed: isStarting ? null : onStartLive,
+                icon: isStarting
+                    ? const SizedBox(
+                        width : 16,
+                        height: 16,
+                        child : CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor : AlwaysStoppedAnimation(Colors.black54),
+                        ),
+                      )
+                    : Icon(b.isLive ? Icons.podcasts : Icons.videocam, size: 18),
+                label: Text(
+                  isStarting
+                      ? 'Starting…'
+                      : (b.isLive ? 'Rejoin Live' : 'Start Live'),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
             )
-          else if (b.isLive)
-            _InfoText(text: 'Live in progress', color: Colors.green)
           else
             _InfoText(text: 'Waiting for payment', color: AppTheme.accentRed.withOpacity(0.7)),
         ],

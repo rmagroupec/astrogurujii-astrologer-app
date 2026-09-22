@@ -69,8 +69,9 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   // 3. Start native ringing — this is what makes the phone actually ring
   //    while the app is backgrounded or fully killed. astro_call_kit's
-  //    CallRingtoneService keeps running (and ringing) independently of
-  //    this isolate, which Android will tear down moments after this
+  //    RingtonePlayer hands the ringtone to the SYSTEM audio process
+  //    (android.media.Ringtone), so the sound keeps playing independently
+  //    of this isolate, which Android tears down moments after this
   //    function returns.
   if (channelId.isNotEmpty) {
     await LocalNotificationService.playRingtone(

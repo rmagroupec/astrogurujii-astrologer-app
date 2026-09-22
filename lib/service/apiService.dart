@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
+import 'package:astrologer_app/features/modal/PujaLiveModel.dart';
 import 'package:astrologer_app/features/service/model/NotificationModel.dart';
 import 'package:astrologer_app/model/AstrolgerTransactionsModel.dart';
 import 'package:astrologer_app/model/AstrologerGalleryModel.dart';
@@ -55,15 +56,46 @@ class ApiService {
   }
 
 
-  Future<AstrologerWalletResponse> PoojaStartLive(String  pujaID) async {
+  // ── PUJA LIVE ─────────────────────────────────────────────────────────────
+  // NOTE: this used to POST to "astrologer_api/astrologer_wallet" and parse
+  // the reply as AstrologerWalletResponse — i.e. it called the WALLET
+  // endpoint. That returns 200 with wallet data, so the UI happily showed
+  // "Pooja started successfully" while the server never set is_live and
+  // never issued an Agora token. That was the main reason puja live did
+  // nothing at all. It now calls the real endpoint.
+  //
+  // [pujaId] must be the booking's Mongo _id (PoojaBooking.id) — the server
+  // also accepts puja_booking_id, but _id is the canonical one.
+  Future<PujaLiveResponse> PoojaStartLive(String pujaId) async {
     final response = await _client.post(
-      "astrologer_api/astrologer_wallet",
-      {"puja_id":pujaID},
-
+      "astrologer_api/puja_live_start",
+      {"puja_id": pujaId},
       isAuthRequired: true,
     );
-    print(response.body);
-    return AstrologerWalletResponse.fromJson(jsonDecode(response.body));
+    if (kDebugMode) print('puja_live_start → ${response.body}');
+    return PujaLiveResponse.fromJson(jsonDecode(response.body));
+  }
+
+  Future<PujaLiveResponse> PoojaEndLive(String pujaId) async {
+    final response = await _client.post(
+      "astrologer_api/puja_live_end",
+      {"puja_id": pujaId},
+      isAuthRequired: true,
+    );
+    if (kDebugMode) print('puja_live_end → ${response.body}');
+    return PujaLiveResponse.fromJson(jsonDecode(response.body));
+  }
+
+  /// Agora tokens expire (1 h). Called from onTokenPrivilegeWillExpire so a
+  /// long puja doesn't drop off air mid-stream.
+  Future<PujaLiveResponse> PoojaLiveToken(String pujaId) async {
+    final response = await _client.post(
+      "astrologer_api/puja_live_token",
+      {"puja_id": pujaId},
+      isAuthRequired: true,
+    );
+    if (kDebugMode) print('puja_live_token → ${response.body}');
+    return PujaLiveResponse.fromJson(jsonDecode(response.body));
   }
   Future<PoojaBookingResponse> getPujaBooking() async {
     final response = await _client.get(

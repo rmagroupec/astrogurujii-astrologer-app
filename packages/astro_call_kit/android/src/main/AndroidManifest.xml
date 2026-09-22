@@ -1,27 +1,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Declared here (in the plugin's own manifest) instead of the app's
-      AndroidManifest.xml — Gradle's manifest merger folds this into the
-      final app manifest automatically, so no manual edits to the app
-      module are required. All permissions this service needs
-      (FOREGROUND_SERVICE, WAKE_LOCK, VIBRATE, USE_FULL_SCREEN_INTENT,
-      POST_NOTIFICATIONS) are already declared in the app's own manifest.
+      No components are declared here any more, and that is deliberate.
 
-      foregroundServiceType is "shortService", NOT "phoneCall". The
-      phoneCall type is gated on Android 14+ to apps that are the default
-      dialer or hold MANAGE_OWN_CALLS + ConnectionService — this app is
-      neither, so that type made startForeground() fail on every modern
-      device, which was the actual root cause of the ringtone never
-      playing. shortService requires no special role/permission and is
-      built for exactly this: a brief (<3 min), self-terminating
-      foreground task.
+      This plugin used to declare a foreground Service
+      (CallRingtoneService, foregroundServiceType="phoneCall", later
+      "shortService"). That service crashed the app in the field with
+      ForegroundServiceDidNotStartInTimeException, because a foreground
+      service must call startForeground() within seconds of being started
+      or Android kills the whole process — a promise that is genuinely hard
+      to keep here (Android 14+ service-type gating, notification ownership
+      colliding with the notification flutter_local_notifications already
+      posts, and start/stop races when a call is answered immediately).
+
+      It is also unnecessary: RingtonePlayer plays the ringtone through
+      android.media.Ringtone, which delegates to the system's remote
+      ringtone player. The audio therefore comes out of the SYSTEM audio
+      process, not ours, so our process needs no elevated priority to keep
+      it playing — and no service, no notification of our own, and no
+      permission beyond VIBRATE (already declared by the app).
+
+      See RingtonePlayer.kt for the full reasoning.
     -->
-    <application>
-        <service
-            android:name="com.astrologer.vaidikguru.astrocallkit.CallRingtoneService"
-            android:exported="false"
-            android:foregroundServiceType="shortService" />
-    </application>
 
 </manifest>

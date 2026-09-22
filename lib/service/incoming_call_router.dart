@@ -85,25 +85,54 @@ class IncomingCallRouter {
 
   // ─────────────────────────────────────────────────────────────────────────
   // FOREGROUND ENTRY POINT
-  // Called from _AppRoot._onForegroundMessage — DO NOT play ringtone here.
-  // The IncomingCallScreen plays ringtone via LocalNotificationService.playRingtone().
+  // Wired to FirebaseMessaging.onMessage in main().
+  //
+  // This has to do the WHOLE job itself, because in the pure foreground
+  // case nothing else will: handlePending() is only triggered from
+  // _AppRoot.initState (cold start) and from didChangeAppLifecycleState on
+  // `resumed` (coming back from the background). When the app is ALREADY
+  // open and resumed, neither fires — so previously this method only
+  // persisted the data and posted a notification, the incoming screen never
+  // mounted, and because the incoming screen is what calls playRingtone(),
+  // the phone never rang in the foreground at all.
+  //
+  // So: ring immediately, then route immediately.
   // ─────────────────────────────────────────────────────────────────────────
   static Future<void> handleForeground(RemoteMessage message) async {
     final data = message.data;
     if (!isCallData(data)) return;
-    if ((data['channel_id'] ?? '').toString().isEmpty) return;
 
-    // Persist so handlePending() can navigate when the frame is ready
-    await persist(data.map((k, v) => MapEntry(k, v.toString())));
+    final stringData = data.map((k, v) => MapEntry(k, v.toString()));
+    final channelId  = stringData['channel_id'] ?? '';
+    if (channelId.isEmpty) return;
 
-    // Show fullscreen notification — this is what wakes the lock screen
-    // and brings the app forward. The actual incoming screen is shown
-    // by handlePending() in _AppRoot.initState / didChangeAppLifecycleState.
+    final title = stringData['title'] ?? 'Incoming Call';
+    final body  = '${stringData['user_name'] ?? 'Someone'} is calling';
+
+    // Persist so handlePending() (below, or on a later resume) can navigate
+    await persist(stringData);
+
+    // Heads-up / lock-screen notification, with its Accept + Reject actions
     await LocalNotificationService.showIncomingCall(
-      title  : data['title']     ?? 'Incoming Call',
-      body   : '${data['user_name'] ?? 'Someone'} is calling',
-      payload: data.map((k, v) => MapEntry(k, v.toString())),
+      title  : title,
+      body   : body,
+      payload: stringData,
     );
+
+    // Ring NOW — don't wait for the incoming screen to mount. This mirrors
+    // what firebaseMessagingBackgroundHandler does, so foreground and
+    // background ring through the exact same native path. It's idempotent,
+    // so the incoming screen re-confirming in its initState is a no-op.
+    await LocalNotificationService.playRingtone(
+      channelId,
+      title: title,
+      body : body,
+    );
+
+    // Show the incoming call screen straight away. The navigator is alive
+    // in the foreground, so there's nothing to wait for — and without this
+    // the user would have to tap the notification before seeing the call.
+    await handlePending();
   }
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,825 @@
+diff --git a/lib/features/Settings/SuggestedPujaScreen.dart b/lib/features/Settings/SuggestedPujaScreen.dart
+index ac7dde8..80a05e9 100644
+--- a/lib/features/Settings/SuggestedPujaScreen.dart
++++ b/lib/features/Settings/SuggestedPujaScreen.dart
+@@ -3,6 +3,7 @@
+ // ── Zero logic changes ────────────────────────────────────────────────────────
+ 
+ import 'package:astrologer_app/core/config/theme_config.dart';
++import 'package:astrologer_app/features/live/PujaLiveScreen.dart';
+ import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
+ import 'package:astrologer_app/service/apiService.dart';
+ import 'package:flutter/material.dart';
+@@ -19,6 +20,10 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
+   bool               isError   = false;
+   List<PoojaBooking> bookings  = [];
+ 
++  /// Booking id currently being started — drives the button spinner and
++  /// blocks double taps (starting twice would issue two Agora tokens).
++  String?            _startingLiveFor;
++
+   @override
+   void initState() {
+     super.initState();
+@@ -38,20 +43,59 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
+     setState(() => isLoading = false);
+   }
+ 
++  // ── Start live ─────────────────────────────────────────────────────────────
++  // Previously this called PoojaStartLive(booking.pujaBookingId) — the wrong
++  // id (puja_booking_id is the readable booking code, not the Mongo _id that
++  // the server looks up) — against the wrong endpoint, and then showed
++  // "Pooja started successfully" unconditionally. Nothing streamed and any
++  // real server message ("Puja starts in 40 minutes", "payment pending") was
++  // swallowed. Now: correct id, real response, and it opens the broadcast.
+   Future<void> startLivePooja(PoojaBooking booking) async {
++    if (_startingLiveFor != null) return;      // guard double-taps
++    setState(() => _startingLiveFor = booking.id);
++
+     try {
+-      await ApiService().PoojaStartLive(booking.pujaBookingId.toString());
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('Pooja started successfully')),
+-      );
+-      fetchPoojaBookings();
+-    } catch (_) {
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('Failed to start pooja')),
++      final res = await ApiService().PoojaStartLive(booking.id);
++
++      if (!mounted) return;
++
++      if (!res.canJoin) {
++        // Server said no (wrong day, too early, payment pending, …) — show
++        // exactly why instead of a generic failure.
++        _snack(res.message.isNotEmpty
++            ? res.message
++            : 'Could not start the puja live');
++        return;
++      }
++
++      final ended = await Navigator.of(context).push<bool>(
++        MaterialPageRoute(
++          builder: (_) => PujaLiveScreen(
++            pujaId   : booking.id,
++            pujaTitle: booking.pujaType.isNotEmpty
++                ? booking.pujaType
++                : (booking.pujaId?.title ?? 'Puja'),
++            session  : res,
++          ),
++        ),
+       );
++
++      if (!mounted) return;
++      if (ended == true) _snack('Puja live ended');
++      fetchPoojaBookings();                     // refresh is_live state
++    } catch (e) {
++      if (mounted) _snack('Failed to start puja live: $e');
++    } finally {
++      if (mounted) setState(() => _startingLiveFor = null);
+     }
+   }
+ 
++  void _snack(String msg) {
++    ScaffoldMessenger.of(context).showSnackBar(
++      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
++    );
++  }
++
+   // ── Build ──────────────────────────────────────────────────────────────────
+   @override
+   Widget build(BuildContext context) {
+@@ -123,6 +167,7 @@ class _PoojaBookingScreenState extends State<PoojaBookingScreen> {
+           booking       : bookings[i],
+           c             : c,
+           isDark        : context.isDark,
++          isStarting    : _startingLiveFor == bookings[i].id,
+           onStartLive   : () => startLivePooja(bookings[i]),
+         ),
+       ),
+@@ -137,19 +182,22 @@ class _BookingCard extends StatelessWidget {
+   final PoojaBooking booking;
+   final AppColors    c;
+   final bool         isDark;
++  final bool         isStarting;
+   final VoidCallback onStartLive;
+ 
+   const _BookingCard({
+     required this.booking,
+     required this.c,
+     required this.isDark,
++    required this.isStarting,
+     required this.onStartLive,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     final b            = booking;
+-    final canStartLive = b.paymentStatus == 'Success' && b.isLive == false;
++    final isPaid       = b.paymentStatus == 'Success';
++    final canStartLive = isPaid && b.isLive == false;
+ 
+     return Container(
+       margin : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+@@ -239,26 +287,40 @@ class _BookingCard extends StatelessWidget {
+           const SizedBox(height: 14),
+ 
+           // ── Action ────────────────────────────────────────────────
+-          if (canStartLive)
++          if (canStartLive || (isPaid && b.isLive))
+             SizedBox(
+               width: double.infinity,
+-              child: ElevatedButton(
++              child: ElevatedButton.icon(
+                 style: ElevatedButton.styleFrom(
+-                  backgroundColor: AppTheme.primaryYellow,
+-                  foregroundColor: Colors.black,
++                  // Already live → green "Rejoin", otherwise the normal CTA.
++                  backgroundColor: b.isLive
++                      ? Colors.green
++                      : AppTheme.primaryYellow,
++                  foregroundColor: b.isLive ? Colors.white : Colors.black,
+                   elevation      : 0,
+                   shape: RoundedRectangleBorder(
+                       borderRadius: BorderRadius.circular(8)),
+                 ),
+-                onPressed: onStartLive,
+-                child: const Text(
+-                  'Start Live',
+-                  style: TextStyle(fontWeight: FontWeight.w600),
++                // Disabled while a start request is in flight.
++                onPressed: isStarting ? null : onStartLive,
++                icon: isStarting
++                    ? const SizedBox(
++                        width : 16,
++                        height: 16,
++                        child : CircularProgressIndicator(
++                          strokeWidth: 2,
++                          valueColor : AlwaysStoppedAnimation(Colors.black54),
++                        ),
++                      )
++                    : Icon(b.isLive ? Icons.podcasts : Icons.videocam, size: 18),
++                label: Text(
++                  isStarting
++                      ? 'Starting…'
++                      : (b.isLive ? 'Rejoin Live' : 'Start Live'),
++                  style: const TextStyle(fontWeight: FontWeight.w600),
+                 ),
+               ),
+             )
+-          else if (b.isLive)
+-            _InfoText(text: 'Live in progress', color: Colors.green)
+           else
+             _InfoText(text: 'Waiting for payment', color: AppTheme.accentRed.withOpacity(0.7)),
+         ],
+diff --git a/lib/features/live/PujaLiveScreen.dart b/lib/features/live/PujaLiveScreen.dart
+new file mode 100644
+index 0000000..7bd639f
+--- /dev/null
++++ b/lib/features/live/PujaLiveScreen.dart
+@@ -0,0 +1,505 @@
++// lib/features/live/PujaLiveScreen.dart
++//
++// The actual puja broadcast screen. This is what was missing entirely:
++// "Start Live" previously just flipped a flag on the server (and even that
++// was hitting the wrong endpoint), so the astrologer's camera never opened
++// and nothing was ever published to Agora.
++//
++// Flow:
++//   PoojaBookingScreen "Start Live"
++//     → ApiService().PoojaStartLive(booking.id)      (server: is_live + token)
++//     → Navigator.push(PujaLiveScreen(...))          (this screen)
++//     → Agora joinChannel as broadcaster, camera live
++//     → "End Live" → ApiService().PoojaEndLive(...)  → leave + release
++//
++// Modelled on the working GoLiveScreen's Agora setup (same App ID, same
++// live-broadcasting profile, same broadcaster role) so behaviour is
++// consistent with the existing regular-live feature.
++
++import 'dart:async';
++
++import 'package:agora_rtc_engine/agora_rtc_engine.dart';
++import 'package:astrologer_app/core/config/theme_config.dart';
++import 'package:astrologer_app/features/modal/PujaLiveModel.dart';
++import 'package:astrologer_app/service/apiService.dart';
++import 'package:flutter/material.dart';
++import 'package:permission_handler/permission_handler.dart';
++
++class PujaLiveScreen extends StatefulWidget {
++  /// Booking's Mongo _id — used for end/token calls.
++  final String pujaId;
++
++  /// Title shown in the header (puja type / name).
++  final String pujaTitle;
++
++  /// Everything the server handed back from puja_live_start.
++  final PujaLiveResponse session;
++
++  const PujaLiveScreen({
++    super.key,
++    required this.pujaId,
++    required this.pujaTitle,
++    required this.session,
++  });
++
++  @override
++  State<PujaLiveScreen> createState() => _PujaLiveScreenState();
++}
++
++class _PujaLiveScreenState extends State<PujaLiveScreen> {
++  // Same App ID the existing GoLiveScreen uses; the server also returns one,
++  // and the server's value wins so the two can never drift apart.
++  static const _fallbackAppId = "8782e154141a4c0bbc8acaa3004d21f2";
++
++  RtcEngine? _engine;
++
++  bool   _engineReady = false;
++  bool   _joined      = false;
++  bool   _ending      = false;
++  String _error       = '';
++
++  bool _micOn  = true;
++  bool _camOn  = true;
++  bool _frontCam = true;
++
++  Timer?   _timer;
++  Duration _elapsed = Duration.zero;
++
++  String get _channelId => widget.session.channelId;
++
++  @override
++  void initState() {
++    super.initState();
++    _start();
++  }
++
++  @override
++  void dispose() {
++    _timer?.cancel();
++    // Fire-and-forget teardown — dispose can't await.
++    _engine?.stopPreview();
++    _engine?.leaveChannel();
++    _engine?.release();
++    super.dispose();
++  }
++
++  // ── Bring-up ──────────────────────────────────────────────────────────────
++  Future<void> _start() async {
++    try {
++      // Camera/mic are requested app-wide at launch, but a user can revoke
++      // them — asking again here means "Start Live" never silently fails.
++      final perms = await [Permission.camera, Permission.microphone].request();
++      final denied = perms.values.any((s) => !s.isGranted);
++      if (denied) {
++        setState(() => _error =
++            'Camera and microphone permission are required to go live.');
++        return;
++      }
++
++      await _initAgora();
++      await _joinChannel();
++    } catch (e) {
++      debugPrint('❌ puja live start error: $e');
++      if (mounted) setState(() => _error = 'Could not start the live: $e');
++    }
++  }
++
++  Future<void> _initAgora() async {
++    final appId = widget.session.appId.isNotEmpty
++        ? widget.session.appId
++        : _fallbackAppId;
++
++    _engine = createAgoraRtcEngine();
++    await _engine!.initialize(RtcEngineContext(
++      appId         : appId,
++      channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
++    ));
++
++    _engine!.registerEventHandler(RtcEngineEventHandler(
++      onJoinChannelSuccess: (conn, elapsed) {
++        debugPrint('✅ puja live joined: ${conn.channelId} uid=${conn.localUid}');
++        if (!mounted) return;
++        setState(() => _joined = true);
++        _startTimer();
++      },
++
++      onUserJoined: (conn, uid, __) => debugPrint('👤 viewer joined: $uid'),
++      onUserOffline: (conn, uid, __) => debugPrint('👤 viewer left: $uid'),
++
++      // A puja can easily run longer than the 1 hour token lifetime. Without
++      // this the stream silently drops when the token expires.
++      onTokenPrivilegeWillExpire: (conn, token) async {
++        debugPrint('🔑 puja live token expiring — refreshing');
++        try {
++          final res = await ApiService().PoojaLiveToken(widget.pujaId);
++          if (res.status && res.token.isNotEmpty) {
++            await _engine?.renewToken(res.token);
++            debugPrint('🔑 token renewed');
++          }
++        } catch (e) {
++          debugPrint('❌ token refresh failed: $e');
++        }
++      },
++
++      onError: (code, msg) => debugPrint('❌ Agora $code: $msg'),
++    ));
++
++    await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
++    await _engine!.enableVideo();
++    await _engine!.enableAudio();
++    await _engine!.startPreview();
++
++    if (mounted) setState(() => _engineReady = true);
++  }
++
++  Future<void> _joinChannel() async {
++    await _engine?.joinChannel(
++      token    : widget.session.token,
++      channelId: _channelId,
++      uid      : widget.session.uid,
++      options  : const ChannelMediaOptions(
++        clientRoleType        : ClientRoleType.clientRoleBroadcaster,
++        channelProfile        : ChannelProfileType.channelProfileLiveBroadcasting,
++        publishCameraTrack    : true,
++        publishMicrophoneTrack: true,
++      ),
++    );
++  }
++
++  void _startTimer() {
++    _timer?.cancel();
++    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
++      if (!mounted) return;
++      setState(() => _elapsed += const Duration(seconds: 1));
++    });
++  }
++
++  String get _elapsedLabel {
++    final h = _elapsed.inHours;
++    final m = _elapsed.inMinutes % 60;
++    final s = _elapsed.inSeconds % 60;
++    final mm = m.toString().padLeft(2, '0');
++    final ss = s.toString().padLeft(2, '0');
++    return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
++  }
++
++  // ── Controls ──────────────────────────────────────────────────────────────
++  Future<void> _toggleMic() async {
++    final next = !_micOn;
++    await _engine?.muteLocalAudioStream(!next);
++    if (mounted) setState(() => _micOn = next);
++  }
++
++  Future<void> _toggleCam() async {
++    final next = !_camOn;
++    await _engine?.muteLocalVideoStream(!next);
++    if (next) {
++      await _engine?.startPreview();
++    } else {
++      await _engine?.stopPreview();
++    }
++    if (mounted) setState(() => _camOn = next);
++  }
++
++  Future<void> _switchCam() async {
++    await _engine?.switchCamera();
++    if (mounted) setState(() => _frontCam = !_frontCam);
++  }
++
++  Future<void> _confirmEnd() async {
++    final ok = await showDialog<bool>(
++      context: context,
++      builder: (ctx) => AlertDialog(
++        title  : const Text('End puja live?'),
++        content: const Text(
++            'Viewers will be disconnected and the puja will be marked as no '
++            'longer live.'),
++        actions: [
++          TextButton(
++            onPressed: () => Navigator.pop(ctx, false),
++            child    : const Text('Keep streaming'),
++          ),
++          ElevatedButton(
++            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
++            onPressed: () => Navigator.pop(ctx, true),
++            child    : const Text('End live'),
++          ),
++        ],
++      ),
++    );
++    if (ok == true) await _endLive();
++  }
++
++  Future<void> _endLive() async {
++    if (_ending) return;
++    setState(() => _ending = true);
++
++    _timer?.cancel();
++
++    // Tell the server first so is_live flips even if teardown throws.
++    try {
++      await ApiService().PoojaEndLive(widget.pujaId);
++    } catch (e) {
++      debugPrint('❌ puja_live_end failed: $e');
++    }
++
++    try { await _engine?.stopPreview(); }  catch (_) {}
++    try { await _engine?.leaveChannel(); } catch (_) {}
++    try { await _engine?.release(); }      catch (_) {}
++    _engine = null;
++
++    if (mounted) Navigator.of(context).pop(true); // true → refresh the list
++  }
++
++  // ── Build ─────────────────────────────────────────────────────────────────
++  @override
++  Widget build(BuildContext context) {
++    return PopScope(
++      // Back must not silently abandon a running stream.
++      canPop: false,
++      onPopInvoked: (didPop) {
++        if (!didPop && !_ending) _confirmEnd();
++      },
++      child: Scaffold(
++        backgroundColor: Colors.black,
++        body: Stack(
++          fit: StackFit.expand,
++          children: [
++            _videoLayer(),
++            _topBar(),
++            _bottomControls(),
++            if (_ending)
++              Container(
++                color: Colors.black54,
++                child: const Center(
++                  child: CircularProgressIndicator(color: Colors.white),
++                ),
++              ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _videoLayer() {
++    if (_error.isNotEmpty) {
++      return Padding(
++        padding: const EdgeInsets.all(28),
++        child: Column(
++          mainAxisAlignment: MainAxisAlignment.center,
++          children: [
++            const Icon(Icons.videocam_off, color: Colors.white54, size: 56),
++            const SizedBox(height: 16),
++            Text(
++              _error,
++              textAlign: TextAlign.center,
++              style: const TextStyle(color: Colors.white70, fontSize: 14),
++            ),
++            const SizedBox(height: 20),
++            ElevatedButton(
++              style: ElevatedButton.styleFrom(
++                backgroundColor: AppTheme.primaryYellow,
++                foregroundColor: Colors.black,
++              ),
++              onPressed: () => Navigator.of(context).pop(false),
++              child: const Text('Go back'),
++            ),
++          ],
++        ),
++      );
++    }
++
++    if (!_engineReady) {
++      return const Center(
++        child: Column(
++          mainAxisAlignment: MainAxisAlignment.center,
++          children: [
++            CircularProgressIndicator(color: Colors.white),
++            SizedBox(height: 16),
++            Text('Preparing camera…',
++                style: TextStyle(color: Colors.white70, fontSize: 13)),
++          ],
++        ),
++      );
++    }
++
++    if (!_camOn) {
++      return Container(
++        color: const Color(0xFF14142B),
++        child: const Center(
++          child: Column(
++            mainAxisAlignment: MainAxisAlignment.center,
++            children: [
++              Icon(Icons.videocam_off, color: Colors.white38, size: 60),
++              SizedBox(height: 12),
++              Text('Camera off',
++                  style: TextStyle(color: Colors.white54, fontSize: 14)),
++            ],
++          ),
++        ),
++      );
++    }
++
++    return AgoraVideoView(
++      controller: VideoViewController(
++        rtcEngine: _engine!,
++        canvas   : const VideoCanvas(uid: 0),
++      ),
++    );
++  }
++
++  Widget _topBar() {
++    return SafeArea(
++      child: Padding(
++        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
++        child: Row(
++          children: [
++            // LIVE / CONNECTING badge
++            Container(
++              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
++              decoration: BoxDecoration(
++                color       : _joined ? Colors.red : Colors.orange,
++                borderRadius: BorderRadius.circular(6),
++              ),
++              child: Row(
++                mainAxisSize: MainAxisSize.min,
++                children: [
++                  Container(
++                    width : 7,
++                    height: 7,
++                    decoration: const BoxDecoration(
++                      color: Colors.white,
++                      shape: BoxShape.circle,
++                    ),
++                  ),
++                  const SizedBox(width: 6),
++                  Text(
++                    _joined ? 'LIVE' : 'CONNECTING',
++                    style: const TextStyle(
++                      color     : Colors.white,
++                      fontSize  : 11,
++                      fontWeight: FontWeight.bold,
++                      letterSpacing: 0.5,
++                    ),
++                  ),
++                ],
++              ),
++            ),
++
++            if (_joined) ...[
++              const SizedBox(width: 8),
++              Container(
++                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
++                decoration: BoxDecoration(
++                  color       : Colors.black54,
++                  borderRadius: BorderRadius.circular(6),
++                ),
++                child: Text(
++                  _elapsedLabel,
++                  style: const TextStyle(color: Colors.white, fontSize: 11),
++                ),
++              ),
++            ],
++
++            const Spacer(),
++
++            // Puja title
++            Flexible(
++              child: Text(
++                widget.pujaTitle,
++                textAlign: TextAlign.right,
++                maxLines : 2,
++                overflow : TextOverflow.ellipsis,
++                style: const TextStyle(
++                  color     : Colors.white,
++                  fontSize  : 13,
++                  fontWeight: FontWeight.w600,
++                ),
++              ),
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _bottomControls() {
++    return Align(
++      alignment: Alignment.bottomCenter,
++      child: SafeArea(
++        child: Container(
++          margin : const EdgeInsets.only(bottom: 24, left: 18, right: 18),
++          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
++          decoration: BoxDecoration(
++            color       : Colors.black.withOpacity(0.55),
++            borderRadius: BorderRadius.circular(40),
++          ),
++          child: Row(
++            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
++            children: [
++              _circleBtn(
++                icon   : _micOn ? Icons.mic : Icons.mic_off,
++                active : _micOn,
++                label  : 'Mic',
++                onTap  : _engineReady ? _toggleMic : null,
++              ),
++              _circleBtn(
++                icon   : _camOn ? Icons.videocam : Icons.videocam_off,
++                active : _camOn,
++                label  : 'Camera',
++                onTap  : _engineReady ? _toggleCam : null,
++              ),
++              _circleBtn(
++                icon   : Icons.cameraswitch,
++                active : true,
++                label  : _frontCam ? 'Front' : 'Back',
++                onTap  : _engineReady && _camOn ? _switchCam : null,
++              ),
++              _circleBtn(
++                icon    : Icons.call_end,
++                active  : true,
++                label   : 'End',
++                bgColor : Colors.red,
++                onTap   : _ending ? null : _confirmEnd,
++              ),
++            ],
++          ),
++        ),
++      ),
++    );
++  }
++
++  Widget _circleBtn({
++    required IconData icon,
++    required bool     active,
++    required String   label,
++    VoidCallback?     onTap,
++    Color?            bgColor,
++  }) {
++    final disabled = onTap == null;
++    return Opacity(
++      opacity: disabled ? 0.4 : 1,
++      child: Column(
++        mainAxisSize: MainAxisSize.min,
++        children: [
++          GestureDetector(
++            onTap: onTap,
++            child: Container(
++              width : 50,
++              height: 50,
++              decoration: BoxDecoration(
++                color: bgColor ??
++                    (active ? Colors.white24 : Colors.white10),
++                shape: BoxShape.circle,
++              ),
++              child: Icon(icon, color: Colors.white, size: 22),
++            ),
++          ),
++          const SizedBox(height: 5),
++          Text(label,
++              style: const TextStyle(color: Colors.white70, fontSize: 10)),
++        ],
++      ),
++    );
++  }
++}
+diff --git a/lib/features/modal/PujaLiveModel.dart b/lib/features/modal/PujaLiveModel.dart
+new file mode 100644
+index 0000000..aa97d9f
+--- /dev/null
++++ b/lib/features/modal/PujaLiveModel.dart
+@@ -0,0 +1,70 @@
++// lib/features/modal/PujaLiveModel.dart
++//
++// Response of astrologer_api/puja_live_start, /puja_live_token and
++// /puja_live_end. The start/token responses carry everything needed to
++// actually join the Agora channel — which the old flow never returned,
++// so puja "live" could never stream.
++
++class PujaLiveResponse {
++  final bool   status;
++  final String message;
++
++  /// Agora RTC token for this channel (broadcaster/publisher role).
++  final String token;
++
++  /// Agora channel name. Shared with viewers, stays stable across rejoins.
++  final String channelId;
++
++  /// 0 means "let Agora assign a uid" — must match how the token was built.
++  final int    uid;
++
++  /// Agora App ID from the server, so it never drifts from the app constant.
++  final String appId;
++
++  /// Token lifetime in seconds; refresh before this elapses.
++  final int    expiresIn;
++
++  final bool   isLive;
++  final String pujaBookingId;
++  final String startTime;
++  final String endTime;
++
++  const PujaLiveResponse({
++    required this.status,
++    required this.message,
++    this.token         = '',
++    this.channelId     = '',
++    this.uid           = 0,
++    this.appId         = '',
++    this.expiresIn     = 3600,
++    this.isLive        = false,
++    this.pujaBookingId = '',
++    this.startTime     = '',
++    this.endTime       = '',
++  });
++
++  /// True only when the server returned a usable channel + token.
++  bool get canJoin => status && token.isNotEmpty && channelId.isNotEmpty;
++
++  factory PujaLiveResponse.fromJson(Map<String, dynamic> json) {
++    return PujaLiveResponse(
++      status       : json['status'] == true,
++      message      : json['message']?.toString() ?? '',
++      token        : json['token']?.toString() ?? '',
++      channelId    : json['channel_id']?.toString() ?? '',
++      uid          : _toInt(json['uid'], 0),
++      appId        : json['app_id']?.toString() ?? '',
++      expiresIn    : _toInt(json['expires_in'], 3600),
++      isLive       : json['is_live'] == true,
++      pujaBookingId: json['puja_booking_id']?.toString() ?? '',
++      startTime    : json['start_time']?.toString() ?? '',
++      endTime      : json['end_time']?.toString() ?? '',
++    );
++  }
++
++  static int _toInt(dynamic v, int fallback) {
++    if (v is int) return v;
++    if (v is num) return v.toInt();
++    return int.tryParse(v?.toString() ?? '') ?? fallback;
++  }
++}
+diff --git a/lib/service/apiService.dart b/lib/service/apiService.dart
+index 0b44737..d501c22 100644
+--- a/lib/service/apiService.dart
++++ b/lib/service/apiService.dart
+@@ -1,6 +1,7 @@
+ import 'dart:convert';
+ 
+ import 'package:astrologer_app/features/modal/PujaBookingModel.dart';
++import 'package:astrologer_app/features/modal/PujaLiveModel.dart';
+ import 'package:astrologer_app/features/service/model/NotificationModel.dart';
+ import 'package:astrologer_app/model/AstrolgerTransactionsModel.dart';
+ import 'package:astrologer_app/model/AstrologerGalleryModel.dart';
+@@ -55,15 +56,46 @@ class ApiService {
+   }
+ 
+ 
+-  Future<AstrologerWalletResponse> PoojaStartLive(String  pujaID) async {
++  // ── PUJA LIVE ─────────────────────────────────────────────────────────────
++  // NOTE: this used to POST to "astrologer_api/astrologer_wallet" and parse
++  // the reply as AstrologerWalletResponse — i.e. it called the WALLET
++  // endpoint. That returns 200 with wallet data, so the UI happily showed
++  // "Pooja started successfully" while the server never set is_live and
++  // never issued an Agora token. That was the main reason puja live did
++  // nothing at all. It now calls the real endpoint.
++  //
++  // [pujaId] must be the booking's Mongo _id (PoojaBooking.id) — the server
++  // also accepts puja_booking_id, but _id is the canonical one.
++  Future<PujaLiveResponse> PoojaStartLive(String pujaId) async {
+     final response = await _client.post(
+-      "astrologer_api/astrologer_wallet",
+-      {"puja_id":pujaID},
++      "astrologer_api/puja_live_start",
++      {"puja_id": pujaId},
++      isAuthRequired: true,
++    );
++    if (kDebugMode) print('puja_live_start → ${response.body}');
++    return PujaLiveResponse.fromJson(jsonDecode(response.body));
++  }
+ 
++  Future<PujaLiveResponse> PoojaEndLive(String pujaId) async {
++    final response = await _client.post(
++      "astrologer_api/puja_live_end",
++      {"puja_id": pujaId},
+       isAuthRequired: true,
+     );
+-    print(response.body);
+-    return AstrologerWalletResponse.fromJson(jsonDecode(response.body));
++    if (kDebugMode) print('puja_live_end → ${response.body}');
++    return PujaLiveResponse.fromJson(jsonDecode(response.body));
++  }
++
++  /// Agora tokens expire (1 h). Called from onTokenPrivilegeWillExpire so a
++  /// long puja doesn't drop off air mid-stream.
++  Future<PujaLiveResponse> PoojaLiveToken(String pujaId) async {
++    final response = await _client.post(
++      "astrologer_api/puja_live_token",
++      {"puja_id": pujaId},
++      isAuthRequired: true,
++    );
++    if (kDebugMode) print('puja_live_token → ${response.body}');
++    return PujaLiveResponse.fromJson(jsonDecode(response.body));
+   }
+   Future<PoojaBookingResponse> getPujaBooking() async {
+     final response = await _client.get(

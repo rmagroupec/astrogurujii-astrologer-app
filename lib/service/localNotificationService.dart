@@ -4,9 +4,12 @@
 //
 // ARCHITECTURE RULES (never break these):
 //   1. Ringtone + vibration are owned NATIVELY by astro_call_kit's
-//      CallRingtoneService (a real Android foreground service), NOT by
-//      Dart — that's what lets ringing survive foreground, background,
-//      AND fully-killed states identically. See packages/astro_call_kit.
+//      RingtonePlayer, NOT by Dart — that's what lets ringing survive
+//      foreground, background, AND fully-killed states identically. The
+//      ringtone is played via android.media.Ringtone, which hands playback
+//      to the SYSTEM audio process, so it needs no storage permission and
+//      doesn't depend on this app's process priority.
+//      See packages/astro_call_kit/README.md.
 //   2. Background isolate: persist data + show fullscreen notification,
 //      then hand off to astro_call_kit so ringing keeps going after this
 //      isolate is torn down a few seconds later.
@@ -14,8 +17,9 @@
 //      both, tied to the actual ring lifecycle instead of a one-shot
 //      channel sound)
 //   4. One notification ID per channel_id (hash) — prevents duplicates.
-//      astro_call_kit's foreground service ADOPTS this exact notification
-//      (same ID) instead of posting a second one.
+//      This notification stays fully owned by flutter_local_notifications
+//      (including its Accept/Reject dispatch); astro_call_kit never posts
+//      a notification of its own.
 //   5. cancelCall() always stops ringtone + cancels notification atomically
 
 import 'dart:convert';
@@ -40,8 +44,8 @@ class LocalNotificationService {
 
   // ── Ringtone guard ────────────────────────────────────────────────────────
   // Local, best-effort mirror of native ring state for this isolate only —
-  // the real source of truth is CallRingtoneService.isRinging on the native
-  // side (see AstroCallKit.isRinging()), since ringing must be correct even
+  // the real source of truth is RingtonePlayer.isRinging on the native side
+  // (see AstroCallKit.isRinging()), since ringing must be correct even
   // across isolates that don't share this static field.
   static bool _ringing = false;
 
@@ -164,9 +168,10 @@ class LocalNotificationService {
   // MainActivity would NOT be reachable from the background isolates.
   //
   // The actual ringing/vibrating/auto-timeout lives in
-  // packages/astro_call_kit's CallRingtoneService, a real Android
-  // foreground service, so it survives long after whichever Dart isolate
-  // triggered it has been torn down.
+  // packages/astro_call_kit's RingtonePlayer. The ringtone itself is played
+  // by the SYSTEM audio process (android.media.Ringtone delegates to it),
+  // so the sound survives long after whichever Dart isolate triggered it
+  // has been torn down — no foreground service required.
   // ─────────────────────────────────────────────────────────────────────────
 
   /// ✅ Start ringing for [channelId] — bypasses silent mode the same way a
@@ -207,9 +212,9 @@ class LocalNotificationService {
   // ─────────────────────────────────────────────────────────────────────────
   // VIBRATION — kept as no-op call-site shims.
   //
-  // Vibration is now driven natively by CallRingtoneService for the exact
+  // Vibration is now driven natively by RingtonePlayer for the exact
   // duration of the ring (tied to the same lifecycle as the ringtone
-  // itself, including surviving app kill). These methods are kept so
+  // itself). These methods are kept so
   // existing call sites (IncomingCallScreen.initState/dispose) don't need
   // to change, but they intentionally do nothing anymore.
   // ─────────────────────────────────────────────────────────────────────────
@@ -220,14 +225,23 @@ class LocalNotificationService {
   // CANCEL
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// Dismisses the call notification. Deliberately does NOT stop the
+  /// ringtone.
+  ///
+  /// It used to, back when the ringtone lived in a foreground service that
+  /// owned this notification (a plain NotificationManager.cancel() can't
+  /// dismiss a notification an active foreground service holds). There is
+  /// no foreground service any more, so that coupling is gone — and it was
+  /// actively harmful: _route() calls cancelCall() just before showing the
+  /// incoming screen, so stopping the ring here killed the ringtone a
+  /// moment after it started and left a silent gap until the screen's
+  /// initState restarted it.
+  ///
+  /// Ringing is stopped at the real terminal points instead: the
+  /// notification's Accept/Reject handler, the incoming screen's
+  /// accept/decline/dispose, and the native 45s timeout as a backstop.
   static Future<void> cancelCall(String channelId) async {
     await _plugin.cancel(_notifId(channelId));
-    // Always stop native ringing alongside the notification — otherwise a
-    // foreground-service-owned notification can outlive a plain cancel()
-    // (Android won't let a plain NotificationManager.cancel() dismiss a
-    // notification an active foreground service has adopted via
-    // startForeground(); only that service calling stopForeground() can).
-    await stopRingtone();
   }
 
   static Future<void> cancelAll() async {

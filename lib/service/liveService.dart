@@ -37,6 +37,27 @@ Future<Map<String, dynamic>> LiveStart(String liveId) async {
     return jsonDecode(response.body);
   }
 
+Future<OfferHistoryResponse> GetOfferHistory() async {
+  final resp = await ApiClient().get('astrologer_api/offer_history', isAuthRequired: true);
+  return offerHistoryResponseFromJson(resp.body);
+}
+
+
+
+Future<ToggleResult> ToggleOfferActivation(String offerId, bool turnOn) async {
+  try {
+    final resp = await ApiClient().post(
+      'astrologer_api/toggle_offer_activation',
+      {'offer_id': offerId, 'turn_on': turnOn},
+      isAuthRequired: true,
+    );
+    final body = jsonDecode(resp.body);
+    return ToggleResult(body['status'] == true, body['message']?.toString() ?? '');
+  } catch (e) {
+    return ToggleResult(false, 'Network error');
+  }
+}
+
 Future<Map<String, dynamic>> LiveEnd(String liveId) async {
   try {
     final response = await _apiClient.post(
